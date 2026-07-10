@@ -1,4 +1,5 @@
 import type { DiagramGraph } from '../../domain/entities';
+import { nodeLabelColor } from './nodeStyle';
 
 interface Props {
   graph: DiagramGraph;
@@ -16,11 +17,13 @@ export function LabelsLayer({ graph, visible }: Props) {
       {Object.values(graph.labels).map((label) => {
         let x = 0;
         let y = 0;
+        let fill = 'var(--text-secondary)';
         if (label.elementKind === 'node') {
           const node = graph.nodes[label.elementId];
           if (!node) return null;
           x = node.x + node.width / 2 + label.dx;
           y = node.y + node.height / 2 + label.dy;
+          fill = nodeLabelColor(node.type);
         } else {
           const edge = graph.edges[label.elementId];
           const source = edge && graph.nodes[edge.sourceId];
@@ -37,9 +40,10 @@ export function LabelsLayer({ graph, visible }: Props) {
             y={y}
             textAnchor="middle"
             dominantBaseline="middle"
-            fill={label.elementKind === 'node' ? '#f8fafc' : '#94a3b8'}
+            fill={fill}
+            fontWeight={label.elementKind === 'node' ? 600 : 500}
             fontSize={label.elementKind === 'node' ? 13 : 11}
-            fontFamily="system-ui, sans-serif"
+            fontFamily="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif"
             pointerEvents="none"
           >
             {label.text}

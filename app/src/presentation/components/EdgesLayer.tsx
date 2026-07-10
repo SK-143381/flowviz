@@ -17,7 +17,7 @@ export function EdgesLayer({ graph, visible, selectedElementId, onSelect }: Prop
     <g role="img" aria-label="Diagram edges layer" style={{ display: visible ? 'inline' : 'none' }}>
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink)" />
         </marker>
       </defs>
       {Object.values(graph.edges).map((edge) => {
@@ -37,8 +37,9 @@ export function EdgesLayer({ graph, visible, selectedElementId, onSelect }: Prop
             y1={y1}
             x2={x2}
             y2={y2}
-            stroke={isSelected ? '#f8fafc' : '#cbd5e1'}
-            strokeWidth={isSelected ? 3 : 2}
+            stroke="var(--ink)"
+            strokeOpacity={isSelected ? 1 : 0.45}
+            strokeWidth={isSelected ? 3 : 1.5}
             markerEnd="url(#arrow)"
             markerStart={edge.directionality === 'bi' ? 'url(#arrow)' : undefined}
             tabIndex={0}

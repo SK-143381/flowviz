@@ -1,15 +1,5 @@
-import type { DiagramGraph, NodeType } from '../../domain/entities';
-
-const NODE_STYLE: Record<NodeType, { fill: string; rx: number }> = {
-  client: { fill: '#3b82f6', rx: 28 },
-  server: { fill: '#6366f1', rx: 10 },
-  database: { fill: '#059669', rx: 4 },
-  load_balancer: { fill: '#d97706', rx: 10 },
-  cache: { fill: '#dc2626', rx: 999 },
-  queue: { fill: '#7c3aed', rx: 10 },
-  api_gateway: { fill: '#0891b2', rx: 10 },
-  external_service: { fill: '#64748b', rx: 10 },
-};
+import type { DiagramGraph } from '../../domain/entities';
+import { NODE_STYLE } from './nodeStyle';
 
 interface Props {
   graph: DiagramGraph;
@@ -37,9 +27,11 @@ export function NodesLayer({ graph, visible, selectedElementId, onSelect }: Prop
             width={node.width}
             height={node.height}
             rx={Math.min(style.rx, node.height / 2)}
-            fill={style.fill}
-            stroke={isSelected ? '#f8fafc' : 'rgba(255,255,255,0.25)'}
-            strokeWidth={isSelected ? 3 : 1}
+            fill="var(--ink)"
+            fillOpacity={style.fillOpacity}
+            stroke="var(--ink)"
+            strokeDasharray={style.dasharray}
+            strokeWidth={isSelected ? 3 : 1.5}
             tabIndex={0}
             role="button"
             aria-label={`${node.type.replace('_', ' ')} node`}
