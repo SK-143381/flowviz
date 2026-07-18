@@ -8,12 +8,12 @@
 
 import type { Decision, DiagramGraph, EdgeEntity, LabelEntity, NodeEntity } from '../entities';
 import { emptyGraph } from '../entities';
+import { nextId } from '../idGenerator';
 import { schemaTableList, type SchemaModel } from './entities';
 
-let counter = 0;
+/** `sg_` prefix keeps these visually distinguishable in dev tools from prompt-generated ids. */
 function nextGraphId(prefix: string): string {
-  counter += 1;
-  return `sg_${prefix}_${counter.toString().padStart(3, '0')}`;
+  return nextId(`sg_${prefix}`);
 }
 
 export interface SchemaToGraphResult {

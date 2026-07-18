@@ -7,7 +7,7 @@
  * output is never 100% guaranteed to match even a very explicit instruction.
  */
 
-import { nextId } from '../../application/ids';
+import { nextId } from '../../domain/idGenerator';
 import { emptyGraph, type Decision, type DecisionCategory, type DiagramGraph, type GraphDiff, type NodeType, type ProtocolType } from '../../domain/entities';
 import type { IReasoningEngine, ParsePromptResult, ProposeEditResult } from '../../domain/ports';
 import { callGeminiForJson } from './geminiClient';

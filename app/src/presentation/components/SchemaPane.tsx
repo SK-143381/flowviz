@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import type { SchemaSessionService } from '../../application/SchemaSessionService';
 import type { SchemaSessionState } from '../../application/schemaTypes';
-import type { ColumnType, SchemaModel } from '../../domain/schema/entities';
+import type { SchemaModel } from '../../domain/schema/entities';
 import { schemaTableList } from '../../domain/schema/entities';
+import { SchemaDiagramCanvas } from '../schema/SchemaDiagramCanvas';
 import { DocumentUpload } from './DocumentUpload';
 import { ExportMenu } from './ExportMenu';
 import { SchemaDecisionDialogue } from './SchemaDecisionDialogue';
@@ -13,19 +14,19 @@ interface Props {
   onGenerateDiagram: (schema: SchemaModel) => void;
 }
 
-const COLUMN_TYPES: ColumnType[] = ['int', 'string', 'decimal', 'date', 'boolean'];
-
 /**
- * The schema pane: an editable, tab-navigable relational-schema grid. Native DOM tab order
- * (inputs rendered in table -> column order, no custom tabIndex) gives "tab through cells"
- * for free. The foreign-key cell is the one non-native-input control: Enter cycles it
- * through primary-key candidates (SchemaSessionService.cycleColumnReference), Tab moves on —
- * exactly the interaction the feature request asked for.
+ * The schema pane: an editable ER-diagram-style canvas (SchemaDiagramCanvas), styled and
+ * laid out like the reference ER diagram — colored table boxes connected by relationship
+ * lines — but fully interactive and screen-reader accessible, and scaled to fit the pane's
+ * height so there's no vertical scrolling. Tab order across cells is native DOM order
+ * (inputs rendered in table -> column order, no custom tabIndex). The foreign-key cell is
+ * the one non-native-input control: Enter cycles it through primary-key candidates
+ * (SchemaSessionService.cycleColumnReference), Tab moves on.
  */
 export function SchemaPane({ state, service, onGenerateDiagram }: Props) {
   const [prompt, setPrompt] = useState('');
   const [documentContext, setDocumentContext] = useState<string | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const busy = state.mode === 'confirming';
 
   const handleSend = () => {
@@ -54,7 +55,7 @@ export function SchemaPane({ state, service, onGenerateDiagram }: Props) {
         <button type="button" onClick={() => onGenerateDiagram(state.schema)} disabled={tables.length === 0}>
           Generate architecture diagram →
         </button>
-        <ExportMenu kind="html" getElement={() => gridRef.current} filenamePrefix="schema" disabled={tables.length === 0} label="Export schema image" />
+        <ExportMenu kind="html" getElement={() => contentRef.current} filenamePrefix="schema" disabled={tables.length === 0} label="Export schema image" />
       </div>
 
       <form
@@ -94,83 +95,7 @@ export function SchemaPane({ state, service, onGenerateDiagram }: Props) {
         </p>
       )}
 
-      <div className="schema-grid" ref={gridRef}>
-        {tables.length === 0 && <p className="schema-empty-hint">No tables yet. Load the default schema, describe one above, or add a table.</p>}
-        {tables.map((table) => (
-          <div className="schema-table-card" key={table.id}>
-            <div className="schema-table-header">
-              <input
-                aria-label={`Table name for ${table.name}`}
-                className="schema-table-name"
-                value={table.name}
-                onChange={(e) => service.renameTable(table.id, e.target.value)}
-              />
-              <button type="button" onClick={() => service.removeTable(table.id)} aria-label={`Remove table ${table.name}`}>
-                ✕
-              </button>
-            </div>
-            <div className="schema-column-rows">
-              {table.columns.map((column) => (
-                <div className="schema-column-row" key={column.id}>
-                  <input
-                    aria-label={`Column name`}
-                    value={column.name}
-                    onChange={(e) => service.updateColumn(table.id, column.id, { name: e.target.value })}
-                  />
-                  <select
-                    aria-label="Column type"
-                    value={column.type}
-                    onChange={(e) => service.setColumnType(table.id, column.id, e.target.value as ColumnType)}
-                  >
-                    {COLUMN_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="schema-pk-toggle">
-                    <input
-                      type="checkbox"
-                      checked={column.isPrimaryKey}
-                      onChange={(e) => service.updateColumn(table.id, column.id, { isPrimaryKey: e.target.checked })}
-                    />
-                    PK
-                  </label>
-                  <div
-                    className="schema-fk-cell"
-                    tabIndex={0}
-                    role="button"
-                    aria-label={
-                      column.references
-                        ? `Foreign key referencing ${state.schema.tables[column.references.tableId]?.name}. Press Enter to change.`
-                        : 'Not a foreign key. Press Enter to link to a primary key.'
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        service.cycleColumnReference(table.id, column.id);
-                      }
-                    }}
-                    onClick={() => service.cycleColumnReference(table.id, column.id)}
-                  >
-                    {column.references
-                      ? `→ ${state.schema.tables[column.references.tableId]?.name}.${
-                          state.schema.tables[column.references.tableId]?.columns.find((c) => c.id === column.references!.columnId)?.name
-                        }`
-                      : '— (Enter to link)'}
-                  </div>
-                  <button type="button" onClick={() => service.removeColumn(table.id, column.id)} aria-label="Remove column">
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => service.addColumn(table.id)} className="schema-add-column">
-              + Column
-            </button>
-          </div>
-        ))}
-      </div>
+      <SchemaDiagramCanvas schema={state.schema} service={service} contentRef={contentRef} />
     </div>
   );
 }

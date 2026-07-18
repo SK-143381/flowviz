@@ -1,7 +1,6 @@
-let counter = 0;
-
-/** Monotonic id generator so entity/log ids are stable and human-scannable in dev tools. */
-export function nextId(prefix: string): string {
-  counter += 1;
-  return `${prefix}_${counter.toString().padStart(3, '0')}`;
-}
+/**
+ * Re-exports the shared domain id generator so existing `from './ids'` imports across
+ * application/ keep working. See domain/idGenerator.ts for why there's exactly one of these
+ * for the whole app now, not one per layer.
+ */
+export { nextId } from '../domain/idGenerator';

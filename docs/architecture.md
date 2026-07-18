@@ -549,6 +549,85 @@ pane at one call site. Neither pane imports the other's session service.
   generalized out of `useDiagramSession.ts` so `useSchemaSession.ts` could reuse it without
   either hook depending on the other's service type.
 
+### Schema pane visual rewrite: `presentation/schema/`
+
+The schema pane originally rendered tables as a vertically stacked, scrolling list of
+cards. Replaced with an ER-diagram-style canvas — colored table boxes connected by
+relationship lines, positioned by a layout algorithm and scaled to fit the pane's height
+with **no vertical scrolling**, visually in the idiom of the reference ER diagram while
+staying fully interactive and screen-reader accessible (real `<input>`/`<select>`/`<button>`
+elements, native tab order — nothing here is a rendered picture of a diagram).
+
+- **`presentation/schema/layoutSchemaTables.ts`** — `layoutSchemaTables(schema)`, elkjs-based
+  positioning of table boxes from their foreign-key relationships (mirrors
+  `ElkLayoutEngine.ts`'s approach, kept separate because table screen position is transient
+  view state, not part of `SchemaModel`).
+- **`presentation/schema/tablePalette.ts`** — the cycling pastel per-table header palette
+  that gives each table box a distinct color, the way the reference ER diagram does.
+- **`presentation/schema/useFitScale.ts`** — a `ResizeObserver`-driven hook computing the CSS
+  `transform: scale(...)` that fits the laid-out content into the visible pane without
+  vertical overflow (never upscales past 1; floors at a legibility minimum, beyond which
+  horizontal scroll is the fallback — vertical scroll is what's disallowed, not scroll
+  entirely).
+- **`presentation/schema/SchemaConnectors.tsx`** — the relationship-line SVG overlay,
+  `aria-hidden` (every relationship it draws is already stated in the accessible
+  foreign-key cell text, so it's decorative, not a second source of truth).
+- **`presentation/schema/SchemaTableBox.tsx`** — one colored, editable table box.
+- **`presentation/schema/SchemaDiagramCanvas.tsx`** — composes the three above: runs the
+  layout, applies the fit scale, renders the connectors under the table boxes. Exposes a
+  `contentRef` so `SchemaPane.tsx`'s `ExportMenu` rasterizes exactly this element.
+
+`SchemaPane.tsx` now renders `SchemaDiagramCanvas` in place of the old card list; its
+toolbar/prompt row are unchanged.
+
+### Zoom into a pane: `ExpandablePane.tsx`
+
+Each of the three top-level panes can be expanded to fill the whole viewport and collapsed
+back: Tab to a pane, Enter to zoom in, Escape to return to the three-pane view.
+
+- **`presentation/components/ExpandablePane.tsx`** — a generic wrapper (no service
+  dependency) used identically for all three panes. Not expanded/not hidden: a
+  `tabIndex={0}` `<section>` whose `onKeyDown` expands on Enter — but only when the
+  *wrapper itself* is the focused element (`e.target === e.currentTarget`), so Enter on a
+  button or input inside the pane is never hijacked into a zoom. Expanded: an Escape
+  handler that fires from *any* focused descendant (Escape is meant to work as "back out of
+  here" regardless of how deep the user tabbed in), and a visible "Collapse (Esc)" bar for
+  mouse users. Hidden (a *different* pane is expanded): rendered with the native `hidden`
+  attribute rather than unmounted — the pane's own component (and its session-service
+  subscription, and any in-progress typed draft) stays alive underneath, the browser just
+  removes it from layout, tab order, and the accessibility tree for free.
+- On collapse, an effect returns focus to the wrapper `<section>` itself, so keyboard users
+  land somewhere sensible instead of at the top of the document.
+- `App.tsx` holds one `expandedPane: 'schema' | 'canvas' | 'chat' | null` state value and
+  passes `isExpanded`/`isHidden`/`onExpand`/`onCollapse` into each `ExpandablePane`.
+  `app-main--pane-expanded` collapses the CSS grid to one column when any pane is expanded.
+
+**A real bug caught while testing this**: the pane wrapper classes (`.schema-pane-wrapper`,
+`.canvas-pane`, `.chat-pane-wrapper`) all set `display: flex` unconditionally, which has
+higher CSS specificity than the browser's default `[hidden] { display: none }` UA-stylesheet
+rule — so a "hidden" pane was still rendering (its Toolbar was visibly leaking in below the
+expanded schema pane). Fixed with an explicit `.pane[hidden] { display: none !important; }`
+override in `index.css`, ahead of the per-pane display rules.
+
+### One shared id generator: `domain/idGenerator.ts`
+
+A second real bug surfaced while testing the zoom feature (loading the default schema, then
+clicking "Add table", produced a React "duplicate key: col_002" warning). Root cause: three
+separate module-level `let counter = 0` id generators existed independently —
+`application/ids.ts`, a local one in `mermaidErParser.ts`, and another in
+`schemaToGraph.ts` — and the first two both minted bare, un-namespaced prefixes like `"col"`,
+so two unrelated tables' columns could legitimately both land on `"col_002"`.
+
+Fixed by moving id generation into `domain/idGenerator.ts` — the one counter the entire app
+now shares — with `application/ids.ts` reduced to a re-export (existing `from './ids'`
+imports across `application/` keep working unchanged) and `mermaidErParser.ts` /
+`schemaToGraph.ts` / `dependencyEngine.ts` all calling the same function directly. This also
+fixed a pre-existing, unrelated layering violation: every `infrastructure/reasoning/*.ts`
+engine had been importing `nextId` from `../../application/ids` — infrastructure depending on
+application, backwards from the documented dependency direction in Section 1. They now import
+`nextId` from `../../domain/idGenerator` instead, which is the direction the architecture was
+always supposed to have.
+
 ### `App.tsx` composition root, updated
 
 `useComposedSession()` now reads `getGeminiApiKey()` and picks `GeminiReasoningEngine` /

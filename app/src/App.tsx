@@ -16,6 +16,9 @@ import { ChatPane } from './presentation/components/ChatPane';
 import { Toolbar } from './presentation/components/Toolbar';
 import { SchemaPane } from './presentation/components/SchemaPane';
 import { SettingsPanel } from './presentation/components/SettingsPanel';
+import { ExpandablePane } from './presentation/components/ExpandablePane';
+
+type PaneId = 'schema' | 'canvas' | 'chat';
 
 /**
  * Composition root: the only place concrete infrastructure classes are named. Picks Gemini-
@@ -45,6 +48,7 @@ export default function App() {
   const diagramState = useDiagramSession(diagramService);
   const schemaState = useSchemaSession(schemaService);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [expandedPane, setExpandedPane] = useState<PaneId | null>(null);
 
   useEffect(() => subscribeToSettings(() => setSettingsVersion((v) => v + 1)), []);
 
@@ -65,12 +69,26 @@ export default function App() {
         </div>
       </header>
 
-      <main className="app-main app-main--three-pane">
-        <section className="schema-pane-wrapper" aria-label="Database schema">
+      <main className={`app-main app-main--three-pane ${expandedPane ? 'app-main--pane-expanded' : ''}`}>
+        <ExpandablePane
+          label="Database schema panel"
+          className="schema-pane-wrapper"
+          isExpanded={expandedPane === 'schema'}
+          isHidden={expandedPane !== null && expandedPane !== 'schema'}
+          onExpand={() => setExpandedPane('schema')}
+          onCollapse={() => setExpandedPane(null)}
+        >
           <SchemaPane state={schemaState} service={schemaService} onGenerateDiagram={(schema) => diagramService.generateFromSchema(schema)} />
-        </section>
+        </ExpandablePane>
 
-        <section className="canvas-pane" aria-label="Diagram canvas">
+        <ExpandablePane
+          label="Diagram canvas panel"
+          className="canvas-pane"
+          isExpanded={expandedPane === 'canvas'}
+          isHidden={expandedPane !== null && expandedPane !== 'canvas'}
+          onExpand={() => setExpandedPane('canvas')}
+          onCollapse={() => setExpandedPane(null)}
+        >
           <Toolbar state={diagramState} service={diagramService} getSvgElement={() => svgRef.current} />
           <div className="canvas-frame">
             <DiagramCanvas
@@ -81,11 +99,18 @@ export default function App() {
               svgRef={svgRef}
             />
           </div>
-        </section>
+        </ExpandablePane>
 
-        <section className="chat-pane-wrapper" aria-label="Assistant conversation">
+        <ExpandablePane
+          label="Assistant conversation panel"
+          className="chat-pane-wrapper"
+          isExpanded={expandedPane === 'chat'}
+          isHidden={expandedPane !== null && expandedPane !== 'chat'}
+          onExpand={() => setExpandedPane('chat')}
+          onCollapse={() => setExpandedPane(null)}
+        >
           <ChatPane state={diagramState} service={diagramService} stt={stt} />
-        </section>
+        </ExpandablePane>
       </main>
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />

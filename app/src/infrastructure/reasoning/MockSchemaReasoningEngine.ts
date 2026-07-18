@@ -6,7 +6,7 @@
  * line-based fallback DSL for freehand typing: `TableName: col1 PK, col2, col3 FK->Other.col`.
  */
 
-import { nextId } from '../../application/ids';
+import { nextId } from '../../domain/idGenerator';
 import type { Decision } from '../../domain/entities';
 import type { ISchemaReasoningEngine, ParseSchemaResult } from '../../domain/ports';
 import { looksLikeMermaidErDiagram, parseMermaidErDiagram } from '../../domain/schema/mermaidErParser';

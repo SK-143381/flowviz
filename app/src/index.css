@@ -299,6 +299,16 @@ legend {
 }
 
 /* Three-pane layout: schema | canvas | chat */
+
+/* Any pane rule below sets `display: flex` unconditionally, which has higher specificity
+   than the browser's default `[hidden] { display: none }` UA-stylesheet rule and would
+   silently defeat it. This override must win regardless of declaration order. */
+.schema-pane-wrapper[hidden],
+.canvas-pane[hidden],
+.chat-pane-wrapper[hidden] {
+  display: none !important;
+}
+
 .app-header-row {
   display: flex;
   align-items: flex-start;
@@ -316,19 +326,55 @@ legend {
   }
 }
 
+/* Zoom-into-a-pane: Enter to expand, Escape to return (ExpandablePane.tsx). Only one
+   child is ever rendered visible at a time here (the other two carry the `hidden`
+   attribute), so collapsing to a single column is always correct regardless of which
+   pane is expanded. */
+.app-main--pane-expanded {
+  grid-template-columns: 1fr;
+}
+
+.pane-wrapper--collapsible {
+  cursor: pointer;
+}
+
+.pane-wrapper--collapsible:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.pane-expanded-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--chip-bg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pane-expanded-bar button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .schema-pane-wrapper {
   background: var(--panel);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .schema-pane {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 16px;
+  flex: 1;
+  min-height: 0;
 }
 
 .schema-toolbar,
@@ -364,97 +410,138 @@ legend {
   font-size: 14px;
 }
 
-.schema-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.schema-table-card {
+/* ER-diagram-style schema canvas: fit-to-viewport, no vertical scroll (see useFitScale). */
+.schema-diagram-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px;
+  background-color: var(--panel);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.schema-diagram-content {
+  position: relative;
+}
+
+.schema-diagram-scaled {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.schema-connectors {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.schema-table-box {
+  position: absolute;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.schema-table-box-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1.5px solid inherit;
+}
+
+.schema-table-box-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 2px 4px;
+}
+
+.schema-icon-btn {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1;
+  min-width: auto;
+}
+
+.schema-table-box-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.schema-table-box-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto auto auto;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.schema-table-box-row:last-child {
+  border-bottom: none;
+}
+
+.schema-box-type,
+.schema-box-name {
+  padding: 2px 3px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  width: 100%;
+  min-width: 0;
+}
+
+.schema-box-type:hover,
+.schema-box-name:hover,
+.schema-box-type:focus,
+.schema-box-name:focus {
+  border-color: var(--border);
   background: var(--chip-bg);
 }
 
-.schema-table-header {
+.schema-box-pk {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.schema-table-name {
-  flex: 1;
-  font-weight: 700;
-  font-size: 14px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: inherit;
-}
-
-.schema-table-header button,
-.schema-column-row button,
-.schema-add-column {
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-}
-
-.schema-column-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.schema-column-row {
-  display: grid;
-  grid-template-columns: 1.2fr 0.9fr auto 1.3fr auto;
-  align-items: center;
-  gap: 6px;
-}
-
-.schema-column-row input[type='text'],
-.schema-column-row input:not([type]),
-.schema-column-row select {
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: inherit;
-  font-size: 13px;
-  width: 100%;
-}
-
-.schema-pk-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: 2px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
-.schema-fk-cell {
-  padding: 6px 8px;
-  border-radius: 6px;
+.schema-box-fk {
+  padding: 2px 4px;
+  border-radius: 4px;
   border: 1px dashed var(--border);
-  font-size: 12px;
+  font-size: 10px;
   cursor: pointer;
   white-space: nowrap;
+  max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.schema-fk-cell:focus {
+.schema-box-fk:focus {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
-}
-
-.schema-add-column {
-  margin-top: 8px;
 }
 
 /* Export menu */

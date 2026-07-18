@@ -11,12 +11,7 @@
 
 import type { ColumnType, SchemaModel, SchemaTable, SchemaColumn } from './entities';
 import { emptySchema } from './entities';
-
-let counter = 0;
-function nextSchemaId(prefix: string): string {
-  counter += 1;
-  return `${prefix}_${counter.toString().padStart(3, '0')}`;
-}
+import { nextId } from '../idGenerator';
 
 const TYPE_MAP: Record<string, ColumnType> = {
   int: 'int',
@@ -58,7 +53,7 @@ export function parseMermaidErDiagram(text: string): SchemaModel {
     const blockStart = line.match(/^([A-Za-z_][\w]*)\s*\{\s*$/);
     if (blockStart) {
       const tableName = blockStart[1];
-      const tableId = nameToTableId.get(tableName) ?? nextSchemaId('t');
+      const tableId = nameToTableId.get(tableName) ?? nextId('t');
       nameToTableId.set(tableName, tableId);
       const columns: SchemaColumn[] = [];
       i += 1;
@@ -67,7 +62,7 @@ export function parseMermaidErDiagram(text: string): SchemaModel {
         if (colMatch) {
           const [, rawType, colName, keyFlag] = colMatch;
           columns.push({
-            id: nextSchemaId('col'),
+            id: nextId('col'),
             name: colName,
             type: normalizeType(rawType),
             isPrimaryKey: (keyFlag ?? '').toUpperCase() === 'PK',

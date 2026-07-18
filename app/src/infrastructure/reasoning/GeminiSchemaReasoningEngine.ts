@@ -4,7 +4,7 @@
  * foreign keys. See geminiClient.ts for the shared request plumbing.
  */
 
-import { nextId } from '../../application/ids';
+import { nextId } from '../../domain/idGenerator';
 import type { Decision, DecisionCategory } from '../../domain/entities';
 import type { ISchemaReasoningEngine, ParseSchemaResult } from '../../domain/ports';
 import { emptySchema, type ColumnType, type SchemaDiff, type SchemaModel } from '../../domain/schema/entities';
