@@ -430,3 +430,147 @@ one-month prototype.
 No other file changes. `application/DiagramSessionService.ts`, every `presentation/*`
 component, and `domain/*` are written entirely against the `IReasoningEngine` interface and
 have no knowledge that a mock ever existed.
+
+## 6. Schema pane, export, and live-model integration
+
+Added after the initial milestone, in response to the feature request for a three-pane
+layout (schema editor + canvas + chat), file/document upload, image export, and a
+bring-your-own-key path to a live model. Same layering rule as Section 1 — the schema pane
+is a fully independent vertical slice through domain/application/infrastructure/
+presentation that happens to feed one value (a `SchemaModel` snapshot) into the diagram
+pane at one call site. Neither pane imports the other's session service.
+
+### New domain files
+
+- **`domain/schema/entities.ts`** — `SchemaColumn`, `SchemaTable`, `SchemaModel`,
+  `SchemaDiff` (mirrors `GraphDiff`'s shape/semantics), `applySchemaDiff()`,
+  `primaryKeyCandidates()` (every PK column in the schema, used by the FK-cycling picker).
+  Deliberately a separate model from `domain/entities.ts` — a relational schema and an
+  architecture diagram are different things with different edit rules; the only bridge
+  between them is `schemaToGraph.ts`, one explicit pure function.
+- **`domain/schema/mermaidErParser.ts`** — `parseMermaidErDiagram(text)`, a pure regex-based
+  parser for Mermaid `erDiagram` syntax (relationship lines + attribute blocks). Used by (a)
+  `defaultSchema.ts`, (b) `MockSchemaReasoningEngine` whenever uploaded/typed text contains
+  an `erDiagram` block, so pasting a design doc's existing ER diagram works immediately.
+- **`domain/schema/defaultSchema.ts`** — the sample retail/warehouse star schema (8 tables)
+  used by "Load default schema", expressed as the same Mermaid DSL and parsed through the
+  parser above — a live regression check on the parser, not a separately hand-built fixture.
+- **`domain/schema/schemaToGraph.ts`** — `schemaModelToDraftGraph(schema)`: pure conversion
+  of a `SchemaModel` into a draft `DiagramGraph` (one `database`-typed node per table, one
+  edge per resolved foreign key) plus the `Decision[]` this assumed (component type per
+  table, protocol per edge) — feeding the *same* HCXAI confirmation loop prompt-driven
+  generation uses. This is the "schema is automatically converted into an architecture
+  diagram" requirement, implemented as a converter into the existing loop rather than a
+  second, parallel one.
+
+### Ports extended
+
+- **`domain/ports.ts`** gained `ISchemaReasoningEngine` (`parseSchemaPrompt`,
+  `reviseSchemaDecision`) — the schema-pane's Dependency Inversion boundary, symmetric with
+  `IReasoningEngine`.
+
+### New application files
+
+- **`application/schemaTypes.ts`** — `SchemaSessionState`, mirrors `application/types.ts`.
+- **`application/SchemaSessionService.ts`** — the schema pane's session service. Direct grid
+  edits (add/remove/rename table or column) apply immediately, no confirmation needed —
+  those are literal spreadsheet edits, not model interpretations. Only
+  `generateFromPrompt()` (AI-driven parsing of free text or an uploaded document) produces
+  `Decision`s that go through a one-at-a-time confirm/contest loop, same shape as
+  `DiagramSessionService`'s but independently implemented (the two services intentionally
+  don't share a base class — see the file's own header comment for the reasoning). Also
+  owns `cycleColumnReference(tableId, columnId)`: each call advances a foreign-key column's
+  `references` to the next primary-key candidate elsewhere in the schema, wrapping to
+  "unset" after the last — the "press Enter to cycle candidates" interaction.
+- **`application/DiagramSessionService.ts`** gained `generateFromSchema(schema)`, which
+  calls `schemaModelToDraftGraph()` and then a newly extracted private `beginGeneration()`
+  (factored out of `generateFromPrompt()`, which now also calls it) — one shared
+  confirm/lock/layout pipeline regardless of whether the draft graph came from a prompt or
+  a schema. Also gained `describeCurrentDiagram()` (see `describeGraph.ts` below).
+- **`application/describeGraph.ts`** — `describeGraph(graph)`, a pure function producing
+  plain-language bullets (component counts, every connection, any disconnected nodes) from
+  a `DiagramGraph`. A GenAssist-inspired (Huh, Peng & Pavel, UIST 2023) post-generation
+  description step: where GenAssist answers "what did the model produce?" via a VQA
+  pipeline over pixels, this answers it directly from the graph's own data — always
+  accurate by construction, no vision model needed. Wired to a "Describe diagram" button in
+  `Toolbar.tsx` and to `ITextToSpeech`.
+
+### New infrastructure files
+
+- **`infrastructure/reasoning/MockSchemaReasoningEngine.ts`** — offline `ISchemaReasoningEngine`.
+  Tries `parseMermaidErDiagram()` first; if the input has no `erDiagram` block, falls back to
+  a simple line DSL (`TableName: col1 PK, col2, col3 FK->Other.col`) for freehand typing.
+- **`infrastructure/config/settingsStore.ts`** — tiny localStorage wrapper for the Gemini API
+  key (`getGeminiApiKey`/`setGeminiApiKey`) plus a subscribe/notify pair so the composition
+  root can react to a saved key without a page reload.
+- **`infrastructure/reasoning/geminiClient.ts`** — the one place that knows Gemini's REST
+  request/response shape (`callGeminiForJson`, a single `fetch` against `generateContent`
+  with `responseMimeType: "application/json"`). No SDK dependency.
+- **`infrastructure/reasoning/GeminiReasoningEngine.ts`** /
+  **`GeminiSchemaReasoningEngine.ts`** — live, key-backed implementations of
+  `IReasoningEngine` / `ISchemaReasoningEngine`. Each prompts Gemini with the exact JSON
+  shape our domain types expect and defensively coerces the response (unknown node types,
+  missing fields, dangling ids are all normalized rather than trusted blindly, since an
+  LLM's output is never 100% guaranteed to match even a very explicit instruction). **Not
+  exercised against a real key as part of this build** — no key was available; correctness
+  here rests on matching the documented Gemini `generateContent` contract and the app's own
+  domain shapes, not on a live end-to-end run. Treat as reviewed-but-unverified until first
+  use.
+
+### New presentation files
+
+- **`presentation/export/exportImage.ts`** — shared PNG/JPEG/SVG export pipeline.
+  `exportSvgElement()` serializes the diagram canvas's own `<svg>` directly.
+  `exportHtmlElementAsImage()` wraps an arbitrary HTML element (the schema grid) in an
+  `<svg><foreignObject>` shell first, then both paths go through the same
+  serialize-to-blob → `Image` → `<canvas>` → `toDataURL` rasterization for PNG/JPEG, or a
+  direct blob download for SVG.
+- **`presentation/components/ExportMenu.tsx`** — reusable PNG/JPEG/SVG button group, used by
+  both `Toolbar.tsx` (diagram canvas, `kind="svg"`) and `SchemaPane.tsx` (schema grid,
+  `kind="html"`).
+- **`presentation/components/DocumentUpload.tsx`** — reusable `.txt`/`.md` file input
+  (`FileReader`-based, no upload to any server); used by both `ChatPane.tsx` and
+  `SchemaPane.tsx` to attach a document's contents to the next AI-generation request.
+- **`presentation/components/SettingsPanel.tsx`** — the Gemini API key field ("bring your
+  own key"; left blank by default per this milestone's scope — see write-up gap list).
+  Saving calls `notifySettingsChanged()`, which `App.tsx` subscribes to in order to rebuild
+  the composition root's engines on the next render, no reload required.
+- **`presentation/components/SchemaPane.tsx`** — the schema editor: a toolbar (load
+  default / clear / add table / generate-from-schema / export), an AI prompt row with
+  document upload, `SchemaDecisionDialogue`, and the table grid itself. Tab order across
+  cells is entirely native DOM order (inputs rendered in table→column order, no manual
+  `tabIndex`); the one non-native control is the foreign-key cell
+  (`<div tabIndex={0} role="button">`), whose `onKeyDown` calls
+  `service.cycleColumnReference()` on Enter.
+- **`presentation/components/SchemaDecisionDialogue.tsx`** — schema-pane counterpart to
+  `DecisionDialogue.tsx`; intentionally a separate component rather than a shared generic,
+  per the "independent files, easy to collaborate on in parallel" goal.
+- **`presentation/hooks/useObservableService.ts`** — the `useSyncExternalStore` binding,
+  generalized out of `useDiagramSession.ts` so `useSchemaSession.ts` could reuse it without
+  either hook depending on the other's service type.
+
+### `App.tsx` composition root, updated
+
+`useComposedSession()` now reads `getGeminiApiKey()` and picks `GeminiReasoningEngine` /
+`GeminiSchemaReasoningEngine` when a key is present, `MockReasoningEngine` /
+`MockSchemaReasoningEngine` otherwise — the same Dependency Inversion seam described in
+Section 5, just with a second concrete pair to choose from. It also constructs
+`SchemaSessionService` alongside `DiagramSessionService`, and subscribes to
+`subscribeToSettings()` so saving a key in `SettingsPanel` triggers `useMemo` to rebuild both
+services (a `settingsVersion` counter is the memo dependency). The JSX now renders three
+sections — `SchemaPane`, the canvas + `Toolbar`, and `ChatPane` — where `SchemaPane`'s
+"Generate architecture diagram" button calls `diagramService.generateFromSchema(schemaState.schema)`,
+the one call site where the two panes' independent session services meet.
+
+### Verified vs. not yet verified in this pass
+
+Verified end-to-end with a Playwright smoke test against the dev build: loading the default
+8-table schema, native Tab traversal landing correctly on the foreign-key cell, the Enter-to-
+cycle interaction changing a reference, "Generate architecture diagram" running all 24
+resulting decisions through confirmation and rendering an 8-node/13-edge diagram, "Describe
+diagram" logging a GenAssist-style summary, PNG export triggering a real file download, and
+the Settings panel opening with the API-key field present — zero console errors throughout.
+**Not** verified: the two Gemini-backed engines (no API key available in this environment)
+and the schema pane's own HTML-to-image export path (`exportHtmlElementAsImage`) beyond a
+type-check — `foreignObject`-based rasterization is a known-finicky browser feature and
+should be spot-checked in a real browser before relying on it.

@@ -297,3 +297,247 @@ legend {
   color: var(--text);
   border: 1px solid var(--border);
 }
+
+/* Three-pane layout: schema | canvas | chat */
+.app-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-main--three-pane {
+  grid-template-columns: 1.1fr 1.3fr 0.9fr;
+}
+
+@media (max-width: 1200px) {
+  .app-main--three-pane {
+    grid-template-columns: 1fr;
+  }
+}
+
+.schema-pane-wrapper {
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.schema-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.schema-toolbar,
+.schema-prompt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.schema-prompt-row input[type='text'] {
+  flex: 1;
+  min-width: 160px;
+  padding: 11px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  color: inherit;
+  font-size: 14px;
+}
+
+.doc-context-chip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--chip-bg);
+}
+
+.schema-empty-hint {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.schema-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.schema-table-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--chip-bg);
+}
+
+.schema-table-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.schema-table-name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: inherit;
+}
+
+.schema-table-header button,
+.schema-column-row button,
+.schema-add-column {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+}
+
+.schema-column-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schema-column-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr auto 1.3fr auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.schema-column-row input[type='text'],
+.schema-column-row input:not([type]),
+.schema-column-row select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: inherit;
+  font-size: 13px;
+  width: 100%;
+}
+
+.schema-pk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.schema-fk-cell {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schema-fk-cell:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.schema-add-column {
+  margin-top: 8px;
+}
+
+/* Export menu */
+.export-menu {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-menu-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.export-menu button {
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--chip-bg);
+  color: var(--text);
+}
+
+/* Document upload button-like label */
+.button-like {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.button-like:hover {
+  opacity: 0.8;
+}
+
+/* Settings modal */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.settings-panel {
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 24px;
+  width: min(420px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+}
+
+.settings-panel h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.settings-panel input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  color: inherit;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
