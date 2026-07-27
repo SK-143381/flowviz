@@ -28,7 +28,8 @@ type PaneId = 'schema' | 'canvas' | 'chat';
  */
 function useComposedSession(settingsVersion: number) {
   return useMemo(() => {
-    const apiKey = getGeminiApiKey();
+    // const apiKey = getGeminiApiKey();
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || getGeminiApiKey();
     const reasoningEngine = apiKey ? new GeminiReasoningEngine(apiKey) : new MockReasoningEngine();
     const schemaReasoningEngine = apiKey ? new GeminiSchemaReasoningEngine(apiKey) : new MockSchemaReasoningEngine();
     const layoutEngine = new ElkLayoutEngine();
