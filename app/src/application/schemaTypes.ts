@@ -13,6 +13,8 @@ export interface SchemaSessionState {
   error: string | null;
   /** Currently focused cell, used by the FK-cycling Enter-key handler. */
   focusedFkCell: { tableId: string; columnId: string } | null;
+  /** True while awaiting a reasoning-engine call — see SessionState.thinking (types.ts) for why. */
+  thinking: boolean;
 }
 
 export function initialSchemaSessionState(): SchemaSessionState {
@@ -24,5 +26,6 @@ export function initialSchemaSessionState(): SchemaSessionState {
     log: [],
     error: null,
     focusedFkCell: null,
+    thinking: false,
   };
 }

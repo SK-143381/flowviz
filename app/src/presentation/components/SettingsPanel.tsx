@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { getGeminiApiKey, notifySettingsChanged, setGeminiApiKey } from '../../infrastructure/config/settingsStore';
+import {
+  getGeminiApiKey,
+  getSpeechEnabled,
+  notifySettingsChanged,
+  setGeminiApiKey,
+  setSpeechEnabled,
+} from '../../infrastructure/config/settingsStore';
 
 interface Props {
   open: boolean;
@@ -15,11 +21,13 @@ interface Props {
  */
 export function SettingsPanel({ open, onClose }: Props) {
   const [key, setKey] = useState(getGeminiApiKey());
+  const [speechEnabled, setSpeechEnabledLocal] = useState(getSpeechEnabled());
 
   if (!open) return null;
 
   const handleSave = () => {
     setGeminiApiKey(key.trim());
+    setSpeechEnabled(speechEnabled);
     notifySettingsChanged();
     onClose();
   };
@@ -41,6 +49,21 @@ export function SettingsPanel({ open, onClose }: Props) {
           Optional. Without a key, FlowViz uses an offline rule-based engine so the two HCXAI loops stay demoable. Add a key to
           switch both the diagram and schema reasoning engines to live Gemini generation.
         </p>
+
+        <label htmlFor="speech-enabled" className="settings-checkbox-row">
+          <input
+            id="speech-enabled"
+            type="checkbox"
+            checked={speechEnabled}
+            onChange={(e) => setSpeechEnabledLocal(e.target.checked)}
+          />
+          Speak confirmations and descriptions aloud
+        </label>
+        <p className="settings-hint">
+          Spoken feedback uses your browser's built-in text-to-speech, which may show an audio indicator on this tab while
+          speaking. Turn this off if you only want the written chat log.
+        </p>
+
         <div className="settings-actions">
           <button type="button" onClick={handleSave}>
             Save

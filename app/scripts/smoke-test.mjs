@@ -115,9 +115,9 @@ async function scenarioGenerateAndConfirmDiagram(page) {
   await page.click('button:has-text("Send")');
 
   for (let i = 0; i < 20; i++) {
-    const confirmBtn = page.locator('button:has-text("Confirm assumption")');
-    if ((await confirmBtn.count()) === 0) break;
-    await confirmBtn.click();
+    const guessRadio = page.locator('.decision-option:has-text("(my guess)") input[type="radio"]');
+    if ((await guessRadio.count()) === 0) break;
+    await guessRadio.click();
     await page.waitForTimeout(80);
   }
   await page.waitForTimeout(300);
@@ -140,7 +140,7 @@ async function scenarioDependencyAwareEditPreservesPositions(page) {
   await page.fill('#chat-input', 'delete cache');
   await page.click('button:has-text("Send")');
   await page.waitForTimeout(300);
-  const applyAllBtn = page.locator('button:has-text("Apply all")');
+  const applyAllBtn = page.locator('button:has-text("Yes, make all these changes")');
   if ((await applyAllBtn.count()) > 0) await applyAllBtn.click();
   await page.waitForTimeout(400);
 
@@ -199,9 +199,9 @@ async function scenarioSchemaToArchitectureDiagramConversion(page) {
   await page.click('button:has-text("Generate architecture diagram")');
   await page.waitForTimeout(500);
   for (let i = 0; i < 40; i++) {
-    const confirmBtn = page.locator('button:has-text("Confirm assumption")');
-    if ((await confirmBtn.count()) === 0) break;
-    await confirmBtn.click();
+    const guessRadio = page.locator('.decision-option:has-text("(my guess)") input[type="radio"]');
+    if ((await guessRadio.count()) === 0) break;
+    await guessRadio.click();
     await page.waitForTimeout(60);
   }
   await page.waitForTimeout(400);
@@ -247,9 +247,9 @@ async function scenarioExportTriggersDownload(page) {
   await page.fill('#chat-input', 'a client talking to a server');
   await page.click('button:has-text("Send")');
   for (let i = 0; i < 10; i++) {
-    const confirmBtn = page.locator('button:has-text("Confirm assumption")');
-    if ((await confirmBtn.count()) === 0) break;
-    await confirmBtn.click();
+    const guessRadio = page.locator('.decision-option:has-text("(my guess)") input[type="radio"]');
+    if ((await guessRadio.count()) === 0) break;
+    await guessRadio.click();
     await page.waitForTimeout(80);
   }
   await page.waitForTimeout(300);

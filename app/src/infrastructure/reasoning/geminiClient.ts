@@ -47,6 +47,35 @@ export async function callGeminiForJson(apiKey: string, systemInstruction: strin
   }
 }
 
+/** Calls Gemini with a system+user prompt pair, asking for plain prose back (no JSON mode). */
+export async function callGeminiForText(apiKey: string, systemInstruction: string, userPrompt: string): Promise<string> {
+  if (!apiKey) {
+    throw new GeminiConfigError('No Gemini API key configured. Add one in Settings to use live AI generation.');
+  }
+
+  const response = await fetch(`${ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { temperature: 0.4 },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new GeminiRequestError(`Gemini request failed (${response.status}): ${body.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new GeminiRequestError('Gemini returned no content.');
+  return text.trim();
+}
+
 function stripMarkdownFence(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);

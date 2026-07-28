@@ -25,6 +25,10 @@ export interface SessionState {
   layerVisibility: { nodes: boolean; edges: boolean; labels: boolean };
   selectedElementId: string | null;
   error: string | null;
+  /** True while awaiting a reasoning-engine or layout-engine call — the gap `mode` alone
+   *  doesn't cover, since `mode` only changes once the call resolves. Drives the "Thinking…"
+   *  status so the wait is never silent, especially for screen-reader users. */
+  thinking: boolean;
 }
 
 export function initialSessionState(graph: DiagramGraph): SessionState {
@@ -39,5 +43,6 @@ export function initialSessionState(graph: DiagramGraph): SessionState {
     layerVisibility: { nodes: true, edges: true, labels: true },
     selectedElementId: null,
     error: null,
+    thinking: false,
   };
 }

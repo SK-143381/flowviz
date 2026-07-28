@@ -19,10 +19,14 @@ import { nextId } from './ids';
 import { initialSessionState, type SessionState } from './types';
 
 type Listener = () => void;
+type EditAppliedListener = (diff: GraphDiff) => void;
+type GeneratedFromSchemaListener = (correspondence: Array<{ tableId: string; nodeId: string }>) => void;
 
 export class DiagramSessionService {
   private state: SessionState;
   private listeners = new Set<Listener>();
+  private editListeners = new Set<EditAppliedListener>();
+  private generatedFromSchemaListeners = new Set<GeneratedFromSchemaListener>();
   private readonly reasoningEngine: IReasoningEngine;
   private readonly layoutEngine: ILayoutEngine;
   private readonly tts: ITextToSpeech;
@@ -39,6 +43,20 @@ export class DiagramSessionService {
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  };
+
+  /** Fires with the diff every time a diagram edit is actually applied — used by
+   *  SyncCoordinator to translate the change into the linked schema, if any. */
+  onEditApplied = (listener: EditAppliedListener): (() => void) => {
+    this.editListeners.add(listener);
+    return () => this.editListeners.delete(listener);
+  };
+
+  /** Fires once, right when generateFromSchema establishes the node<->table correspondence —
+   *  SyncCoordinator uses this to link the two sessions. */
+  onGeneratedFromSchema = (listener: GeneratedFromSchemaListener): (() => void) => {
+    this.generatedFromSchemaListeners.add(listener);
+    return () => this.generatedFromSchemaListeners.delete(listener);
   };
 
   private setState(patch: Partial<SessionState>) {
@@ -64,12 +82,14 @@ export class DiagramSessionService {
 
   async generateFromPrompt(prompt: string): Promise<void> {
     this.log('user', prompt);
-    this.setState({ error: null });
+    this.setState({ error: null, thinking: true });
     try {
       const { decisions, draftGraph } = await this.reasoningEngine.parsePrompt(prompt, this.state.graph);
       await this.beginGeneration(draftGraph, decisions);
     } catch (err) {
       this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -83,16 +103,19 @@ export class DiagramSessionService {
    */
   async generateFromSchema(schema: SchemaModel): Promise<void> {
     this.log('user', 'Generate architecture diagram from schema.');
-    this.setState({ error: null });
+    this.setState({ error: null, thinking: true });
     try {
-      const { decisions, draftGraph } = schemaModelToDraftGraph(schema);
+      const { decisions, draftGraph, correspondence } = schemaModelToDraftGraph(schema);
       if (Object.keys(draftGraph.nodes).length === 0) {
         this.setState({ error: 'Add at least one table to the schema first.' });
         return;
       }
+      for (const l of this.generatedFromSchemaListeners) l(correspondence);
       await this.beginGeneration(draftGraph, decisions);
     } catch (err) {
       this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -102,10 +125,21 @@ export class DiagramSessionService {
       `I parsed this into ${Object.keys(draftGraph.nodes).length} components and made ` +
         `${decisions.length} interpretive decision(s). Let's confirm them one at a time.`
     );
+    // Lay the draft out immediately, before any decision is confirmed — otherwise every node
+    // sits stacked at its raw (0,0) parse position for the whole confirmation loop, rendering
+    // as an illegible clump of overlapping labels on the canvas.
+    let graph = draftGraph;
+    try {
+      const layout = await this.layoutEngine.layout(draftGraph);
+      graph = applyLayout(draftGraph, layout.positions);
+    } catch {
+      // Layout is a visual nicety here, not load-bearing — fall back to the raw draft
+      // positions rather than blocking the confirmation loop on a layout-engine failure.
+    }
     const next: SessionState = {
       ...this.state,
       mode: 'confirming_generation',
-      graph: draftGraph,
+      graph,
       pendingDecisions: decisions,
       activeDecisionIndex: 0,
       stagedDiff: null,
@@ -132,32 +166,39 @@ export class DiagramSessionService {
     const decision = pendingDecisions[activeDecisionIndex];
     if (!decision) return;
 
-    let graph = this.state.graph;
-    if (status === 'contested' && chosenOptionIndex !== undefined && chosenOptionIndex !== decision.assumedOptionIndex) {
-      const diff = await this.reasoningEngine.reviseForDecision(decision, chosenOptionIndex, graph);
-      graph = applyGraphDiff(graph, diff);
-      this.log('system', `Updated: ${decision.description} -> "${decision.options[chosenOptionIndex]}".`);
-    } else {
-      this.log('user', `Confirmed: ${decision.options[decision.assumedOptionIndex]}`);
-    }
+    this.setState({ thinking: true });
+    try {
+      let graph = this.state.graph;
+      if (status === 'contested' && chosenOptionIndex !== undefined && chosenOptionIndex !== decision.assumedOptionIndex) {
+        const diff = await this.reasoningEngine.reviseForDecision(decision, chosenOptionIndex, graph);
+        graph = applyGraphDiff(graph, diff);
+        this.log('system', `Updated: ${decision.description} -> "${decision.options[chosenOptionIndex]}".`);
+      } else {
+        this.log('user', `Confirmed: ${decision.options[decision.assumedOptionIndex]}`);
+      }
 
-    const updatedDecisions = pendingDecisions.map((d, i) =>
-      i === activeDecisionIndex ? { ...d, status, chosenOptionIndex } : d
-    );
-    const nextIndex = activeDecisionIndex + 1;
-    const next: SessionState = {
-      ...this.state,
-      graph,
-      pendingDecisions: updatedDecisions,
-      activeDecisionIndex: nextIndex,
-    };
-    this.setState(next);
+      const updatedDecisions = pendingDecisions.map((d, i) =>
+        i === activeDecisionIndex ? { ...d, status, chosenOptionIndex } : d
+      );
+      const nextIndex = activeDecisionIndex + 1;
+      const next: SessionState = {
+        ...this.state,
+        graph,
+        pendingDecisions: updatedDecisions,
+        activeDecisionIndex: nextIndex,
+      };
+      this.setState(next);
 
-    if (nextIndex >= updatedDecisions.length) {
-      if (this.state.mode === 'confirming_generation') await this.finalizeGeneration();
-      else if (this.state.mode === 'confirming_edit') await this.presentPropagatedEffects();
-    } else {
-      this.speakActiveItem(next);
+      if (nextIndex >= updatedDecisions.length) {
+        if (this.state.mode === 'confirming_generation') await this.finalizeGeneration();
+        else if (this.state.mode === 'confirming_edit') await this.presentPropagatedEffects();
+      } else {
+        this.speakActiveItem(next);
+      }
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -166,7 +207,19 @@ export class DiagramSessionService {
     const graph = applyLayout(this.state.graph, layout.positions);
     this.setState({ graph, mode: 'ready' });
     this.log('system', 'All decisions locked. Diagram is ready.');
-    this.tts.speak('All decisions confirmed. The diagram is ready to review.');
+    await this.announceAndAsk(graph);
+  }
+
+  /** Dialogic post-generation description: summarizes the result and asks a follow-up, so
+   *  confirming it is just the user's next chat message (routed through requestEdit). */
+  private async announceAndAsk(graph: DiagramGraph): Promise<void> {
+    try {
+      const message = await this.reasoningEngine.describe(graph);
+      this.log('system', message);
+      this.tts.speak(message);
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -175,7 +228,7 @@ export class DiagramSessionService {
 
   async requestEdit(instruction: string, targetElementId?: string): Promise<void> {
     this.log('user', instruction);
-    this.setState({ error: null });
+    this.setState({ error: null, thinking: true });
     try {
       const { decisions, diff } = await this.reasoningEngine.proposeEdit(instruction, targetElementId, this.state.graph);
       const expanded = expandDependencies(this.state.graph, diff);
@@ -197,6 +250,8 @@ export class DiagramSessionService {
       }
     } catch (err) {
       this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -212,7 +267,12 @@ export class DiagramSessionService {
   }
 
   async confirmPropagatedEffects(): Promise<void> {
-    await this.applyStagedEdit();
+    this.setState({ thinking: true });
+    try {
+      await this.applyStagedEdit();
+    } finally {
+      this.setState({ thinking: false });
+    }
   }
 
   cancelEdit(): void {
@@ -241,6 +301,26 @@ export class DiagramSessionService {
     });
     this.log('system', 'Edit applied. Unrelated elements were not moved.');
     this.tts.speak('Edit applied.');
+    for (const l of this.editListeners) l(stagedDiff);
+  }
+
+  /**
+   * Applies a diff that SyncCoordinator already decided (translated from a linked schema
+   * edit) without going through the decision-confirmation loop — the user already confirmed
+   * the original edit on the schema side; this is its mechanical consequence here. Does NOT
+   * emit onEditApplied, so this never re-triggers a translation back the other way.
+   */
+  async applySyncedDiff(diff: GraphDiff, summary: string): Promise<void> {
+    const expanded = expandDependencies(this.state.graph, diff);
+    const updatedGraph = applyGraphDiff(this.state.graph, expanded.diff);
+    try {
+      const layout = await this.layoutEngine.relayoutSubgraph(updatedGraph, expanded.affectedNodeIds);
+      this.setState({ graph: applyLayout(updatedGraph, layout.positions) });
+    } catch {
+      this.setState({ graph: updatedGraph });
+    }
+    this.log('system', `Synced from schema: ${summary}`);
+    this.tts.speak(`Synced from schema: ${summary}`);
   }
 
   // ---------------------------------------------------------------------
