@@ -6,6 +6,7 @@
  */
 
 import type { DependencyRecord, DiagramGraph, GraphDiff } from './entities';
+import { nextId } from './idGenerator';
 
 export interface ExpandedChange {
   diff: GraphDiff;
@@ -13,10 +14,8 @@ export interface ExpandedChange {
   affectedNodeIds: string[];
 }
 
-let recordCounter = 0;
 function nextRecordId(): string {
-  recordCounter += 1;
-  return `dep_${recordCounter.toString().padStart(3, '0')}`;
+  return nextId('dep');
 }
 
 export function expandDependencies(graph: DiagramGraph, directDiff: GraphDiff): ExpandedChange {

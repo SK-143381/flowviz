@@ -3,6 +3,7 @@ import type { DiagramSessionService } from '../../application/DiagramSessionServ
 import type { SessionState } from '../../application/types';
 import type { ISpeechToText } from '../../domain/ports';
 import { DecisionDialogue } from './DecisionDialogue';
+import { DocumentUpload } from './DocumentUpload';
 
 interface Props {
   state: SessionState;
@@ -15,19 +16,22 @@ const isEmptyGraph = (state: SessionState) => Object.keys(state.graph.nodes).len
 export function ChatPane({ state, service, stt }: Props) {
   const [text, setText] = useState('');
   const [listening, setListening] = useState(false);
+  const [documentContext, setDocumentContext] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   const busy = state.mode === 'confirming_generation' || state.mode === 'confirming_edit';
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if ((!trimmed && !documentContext) || busy) return;
+    const combined = [documentContext, trimmed].filter(Boolean).join('\n\n');
     if (isEmptyGraph(state)) {
-      service.generateFromPrompt(trimmed);
+      service.generateFromPrompt(combined);
     } else {
-      service.requestEdit(trimmed, state.selectedElementId ?? undefined);
+      service.requestEdit(combined, state.selectedElementId ?? undefined);
     }
     setText('');
+    setDocumentContext(null);
   };
 
   const toggleMic = () => {
@@ -60,6 +64,9 @@ export function ChatPane({ state, service, stt }: Props) {
       <DecisionDialogue state={state} service={service} />
 
       {state.error && <p className="chat-error" role="alert">{state.error}</p>}
+      {documentContext && (
+        <p className="doc-context-chip">Document attached ({documentContext.length} chars) — will be sent with the next message.</p>
+      )}
 
       <form
         className="chat-input-row"
@@ -86,7 +93,8 @@ export function ChatPane({ state, service, stt }: Props) {
         <button type="button" onClick={toggleMic} aria-pressed={listening} disabled={busy || !stt.isSupported()}>
           {listening ? 'Stop mic' : 'Speak'}
         </button>
-        <button type="submit" disabled={busy || !text.trim()}>
+        <DocumentUpload label="Upload notes" onLoaded={(content) => setDocumentContext(content)} />
+        <button type="submit" disabled={busy || (!text.trim() && !documentContext)}>
           Send
         </button>
       </form>

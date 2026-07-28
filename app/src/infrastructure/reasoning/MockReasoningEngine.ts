@@ -7,7 +7,7 @@
  * API key, per this session's request ("it's okay if [a live model] is not connected").
  */
 
-import { nextId } from '../../application/ids';
+import { nextId } from '../../domain/idGenerator';
 import type { Decision, DiagramGraph, EdgeEntity, GraphDiff, LabelEntity, NodeEntity, NodeType, ProtocolType } from '../../domain/entities';
 import { emptyGraph } from '../../domain/entities';
 import type { IReasoningEngine, ParsePromptResult, ProposeEditResult } from '../../domain/ports';

@@ -41,7 +41,7 @@ Sonnet/Opus, GPT, Gemini — see write-up Section 4), write one new class implem
 `IReasoningEngine` and change one line in `App.tsx`'s `useComposedSession`. Nothing in
 `application/` or `presentation/` needs to change — that's the point of the port.
 
-## The layer model (why edits don't have collateral damage)
+## The layer model
 
 Per the write-up: "nodes should be on layer, text should be one, the edges should be one."
 This is enforced at the **entity level**, not just at render time:
@@ -72,6 +72,29 @@ label cannot outlive its element) and turns each ripple into a human-readable
 affected nodes are re-laid-out (`ElkLayoutEngine.relayoutSubgraph`); everything else keeps
 its exact position — the "spatial stability" metric from the write-up's evaluation plan.
 
+## Three-pane layout, schema editing, and live models
+
+The app is three panes: **schema** (left) → **diagram canvas** (center) →
+**chat** (right). The schema pane is a fully editable relational-schema grid — Tab moves
+cell to cell in native DOM order, Enter on a foreign-key cell cycles through candidate
+primary keys elsewhere in the schema. "Load default schema" loads an 8-table retail/
+warehouse sample; "Generate architecture diagram →" converts whatever's in the grid into a
+draft node/edge graph and runs it through the _same_ HCXAI decision-confirmation loop
+prompt-driven generation uses (see `docs/architecture.md` Section 6). Both the schema pane
+and the chat pane accept a `.txt`/`.md` upload whose contents are prepended to the next
+generation request — including a document that already contains a Mermaid `erDiagram`
+block, which is parsed deterministically rather than guessed at.
+
+Every pane with a canvas/grid has an **Export image** control (PNG / JPEG / SVG), plus the
+diagram canvas keeps its JSON export and gained a **Describe diagram** button (a
+GenAssist-style plain-language summary, read aloud).
+
+**Bring your own Gemini key**: click **Settings** and paste an API key — nothing is
+required to run the app, but once a key is saved, both the diagram and schema reasoning
+engines switch from the offline mock parser to live Gemini generation automatically (no
+reload). The key is stored in `localStorage` only; it never touches any server other than
+Google's own API.
+
 ## Running it
 
 ```bash
@@ -80,20 +103,31 @@ npm run dev
 ```
 
 Try: `a web app with a cache in front of the database` to generate, then (after
-confirming) `delete cache` or `rename database to Orders DB` to edit. Screen-reader users
-should get full text/aria coverage from the toolbar, decision dialogue, and layer groups;
-this has only been smoke-tested with the browser's accessibility tree, not yet with
-NVDA/VoiceOver — that pass is the immediate next step, not part of this milestone.
+confirming) `delete cache` or `rename database to Orders DB` to edit. On the schema side,
+click **Load default schema**, or type `Users: id PK, name, email` and **Generate schema**.
+Screen-reader users should get full text/aria coverage from the toolbar, decision dialogue,
+and layer groups; this has only been smoke-tested with the browser's accessibility tree
+(Playwright) and manual keyboard traversal, not yet with NVDA/VoiceOver — that pass is the
+immediate next step, not part of this milestone.
 
 ## Known simplifications in this preliminary pass
 
-- `MockReasoningEngine` understands a small fixed vocabulary (client, server, database,
-  load balancer, cache, queue, api gateway, external service) and a handful of edit verbs
-  (delete/remove, rename ... to, add ... called ...). This matches the write-up's
-  month-one domain-vocabulary scope constraint (Section 4).
+- `MockReasoningEngine` / `MockSchemaReasoningEngine` understand a small fixed vocabulary
+  and a handful of edit verbs / a simple line DSL. This matches the write-up's month-one
+  domain-vocabulary scope constraint (Section 4). `GeminiReasoningEngine` /
+  `GeminiSchemaReasoningEngine` exist and are wired up, but have **not been exercised
+  against a real API key** in this environment — treat as reviewed, not verified, until
+  first live use.
 - `relayoutSubgraph` pins unaffected nodes via `elk.position` rather than a full
   incremental-layout algorithm; good enough to validate the "unrelated nodes don't move"
   claim, not a production incremental layout.
+- Schema-decision categorization (fact vs. dimension table) is informational only —
+  `reviseSchemaDecision` doesn't yet change structure, matching the existing gap where the
+  diagram loop's `cardinality`/`grouping` decisions are also no-ops today.
+- `exportHtmlElementAsImage` (schema-pane PNG/JPEG/SVG export) uses an SVG
+  `<foreignObject>` wrapper, a known-finicky browser feature; it type-checks and the
+  direct-SVG diagram export path was verified against a real download, but the HTML path
+  itself should be spot-checked in a real browser before relying on it.
 - No persistence/backend yet — session state lives in memory for the tab's lifetime.
-- No tactile/raster export yet, only JSON graph export (`Toolbar.tsx`), scoped as the
-  first tracer round-trip through the architecture.
+- No NVDA/VoiceOver pass yet on the new schema-grid controls (custom foreign-key cell,
+  Tab/Enter interaction) — only keyboard-driven Playwright testing so far.

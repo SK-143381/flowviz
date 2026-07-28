@@ -8,6 +8,7 @@ interface Props {
   layerVisibility: { nodes: boolean; edges: boolean; labels: boolean };
   selectedElementId: string | null;
   onSelect: (id: string) => void;
+  svgRef?: React.Ref<SVGSVGElement>;
 }
 
 /**
@@ -16,12 +17,13 @@ interface Props {
  * "dependency-aware, semantically-labeled layers" mechanism from the write-up —
  * each layer is addressable, describable, and editable without touching the others.
  */
-export function DiagramCanvas({ graph, layerVisibility, selectedElementId, onSelect }: Props) {
+export function DiagramCanvas({ graph, layerVisibility, selectedElementId, onSelect, svgRef }: Props) {
   const nodeCount = Object.keys(graph.nodes).length;
   const edgeCount = Object.keys(graph.edges).length;
 
   return (
     <svg
+      ref={svgRef}
       role="group"
       aria-label={`System architecture diagram with ${nodeCount} components and ${edgeCount} connections`}
       width="100%"

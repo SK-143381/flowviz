@@ -6,6 +6,7 @@
  */
 
 import type { Decision, DiagramGraph, GraphDiff } from './entities';
+import type { SchemaDiff, SchemaModel } from './schema/entities';
 
 export interface ParsePromptResult {
   decisions: Decision[];
@@ -32,6 +33,24 @@ export interface IReasoningEngine {
 
   /** Re-resolves a single contested decision against the user's chosen alternative. */
   reviseForDecision(decision: Decision, chosenOptionIndex: number, graph: DiagramGraph): Promise<GraphDiff>;
+}
+
+export interface ParseSchemaResult {
+  decisions: Decision[];
+  /** The schema as the engine currently believes it should be, pre-confirmation. */
+  draftSchema: SchemaModel;
+}
+
+export interface ISchemaReasoningEngine {
+  /**
+   * Turns free text (a description, or the raw contents of an uploaded .txt/.md file — the
+   * engine itself decides how to read it, e.g. detecting an embedded erDiagram block) into a
+   * draft schema + the interpretive decisions it made (mirrors IReasoningEngine.parsePrompt).
+   */
+  parseSchemaPrompt(prompt: string, currentSchema: SchemaModel): Promise<ParseSchemaResult>;
+
+  /** Re-resolves a single contested schema decision against the user's chosen alternative. */
+  reviseSchemaDecision(decision: Decision, chosenOptionIndex: number, schema: SchemaModel): Promise<SchemaDiff>;
 }
 
 export interface NodePosition {

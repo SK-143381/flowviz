@@ -12,6 +12,9 @@
 import { applyGraphDiff, emptyGraph, type Decision, type DiagramGraph, type GraphDiff } from '../domain/entities';
 import { expandDependencies } from '../domain/dependencyEngine';
 import type { IReasoningEngine, ILayoutEngine, ITextToSpeech } from '../domain/ports';
+import type { SchemaModel } from '../domain/schema/entities';
+import { schemaModelToDraftGraph } from '../domain/schema/schemaToGraph';
+import { describeGraph } from './describeGraph';
 import { nextId } from './ids';
 import { initialSessionState, type SessionState } from './types';
 
@@ -64,28 +67,55 @@ export class DiagramSessionService {
     this.setState({ error: null });
     try {
       const { decisions, draftGraph } = await this.reasoningEngine.parsePrompt(prompt, this.state.graph);
-      this.log(
-        'system',
-        `I parsed this into ${Object.keys(draftGraph.nodes).length} components and made ` +
-          `${decisions.length} interpretive decision(s). Let's confirm them one at a time.`
-      );
-      const next: SessionState = {
-        ...this.state,
-        mode: 'confirming_generation',
-        graph: draftGraph,
-        pendingDecisions: decisions,
-        activeDecisionIndex: 0,
-        stagedDiff: null,
-        stagedRecords: [],
-      };
-      this.setState(next);
-      if (decisions.length === 0) {
-        await this.finalizeGeneration();
-      } else {
-        this.speakActiveItem(next);
-      }
+      await this.beginGeneration(draftGraph, decisions);
     } catch (err) {
       this.setState({ error: (err as Error).message });
+    }
+  }
+
+  /**
+   * The schema-pane entry point into the same decision-confirmation loop: converts a
+   * SchemaModel snapshot into a draft graph + decisions (domain/schema/schemaToGraph.ts,
+   * pure, deterministic) and drives it through the identical confirm/contest/lock/layout
+   * pipeline generateFromPrompt() uses. This is what makes "the database schema is
+   * automatically converted into a system architecture diagram" true without a second,
+   * parallel confirmation UI having to be built.
+   */
+  async generateFromSchema(schema: SchemaModel): Promise<void> {
+    this.log('user', 'Generate architecture diagram from schema.');
+    this.setState({ error: null });
+    try {
+      const { decisions, draftGraph } = schemaModelToDraftGraph(schema);
+      if (Object.keys(draftGraph.nodes).length === 0) {
+        this.setState({ error: 'Add at least one table to the schema first.' });
+        return;
+      }
+      await this.beginGeneration(draftGraph, decisions);
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    }
+  }
+
+  private async beginGeneration(draftGraph: DiagramGraph, decisions: Decision[]): Promise<void> {
+    this.log(
+      'system',
+      `I parsed this into ${Object.keys(draftGraph.nodes).length} components and made ` +
+        `${decisions.length} interpretive decision(s). Let's confirm them one at a time.`
+    );
+    const next: SessionState = {
+      ...this.state,
+      mode: 'confirming_generation',
+      graph: draftGraph,
+      pendingDecisions: decisions,
+      activeDecisionIndex: 0,
+      stagedDiff: null,
+      stagedRecords: [],
+    };
+    this.setState(next);
+    if (decisions.length === 0) {
+      await this.finalizeGeneration();
+    } else {
+      this.speakActiveItem(next);
     }
   }
 
@@ -227,6 +257,13 @@ export class DiagramSessionService {
 
   exportGraph(): DiagramGraph {
     return this.state.graph;
+  }
+
+  /** GenAssist-style post-generation description, read aloud and logged (see describeGraph.ts). */
+  describeCurrentDiagram(): void {
+    const bullets = describeGraph(this.state.graph);
+    this.log('system', bullets.join(' '));
+    this.tts.speak(bullets.join(' '));
   }
 }
 
