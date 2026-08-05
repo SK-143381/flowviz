@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "smoke": "node scripts/smoke-test.mjs",
-    "smoke:headed": "node scripts/smoke-test.mjs --headed"
+    "smoke:headed": "node scripts/smoke-test.mjs --headed",
+    "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
     "elkjs": "^0.11.1",
