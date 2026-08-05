@@ -6,6 +6,7 @@
  */
 
 const GEMINI_API_KEY_STORAGE_KEY = 'flowviz.geminiApiKey';
+const SPEECH_ENABLED_STORAGE_KEY = 'flowviz.speechEnabled';
 
 export function getGeminiApiKey(): string {
   try {
@@ -22,6 +23,26 @@ export function setGeminiApiKey(key: string): void {
   } catch {
     // localStorage unavailable (private mode, SSR, etc.) — silently no-op, engine falls
     // back to the mock reasoning engine.
+  }
+}
+
+/** Spoken confirmations (WebSpeechTTS) are opt-out, not opt-in — they're a core accessibility
+ *  channel for blind/low-vision users, so default true. Muting also stops the browser's
+ *  native "this tab is playing audio" tab indicator from appearing on every confirmation. */
+export function getSpeechEnabled(): boolean {
+  try {
+    const v = localStorage.getItem(SPEECH_ENABLED_STORAGE_KEY);
+    return v === null ? true : v === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function setSpeechEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(SPEECH_ENABLED_STORAGE_KEY, String(enabled));
+  } catch {
+    // localStorage unavailable — speech stays at its default (enabled).
   }
 }
 

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiagramSessionService } from './application/DiagramSessionService';
 import { SchemaSessionService } from './application/SchemaSessionService';
+import { SyncCoordinator } from './application/SyncCoordinator';
 import { MockReasoningEngine } from './infrastructure/reasoning/MockReasoningEngine';
 import { MockSchemaReasoningEngine } from './infrastructure/reasoning/MockSchemaReasoningEngine';
 import { GeminiReasoningEngine } from './infrastructure/reasoning/GeminiReasoningEngine';
@@ -37,7 +38,10 @@ function useComposedSession(settingsVersion: number) {
     const stt = new WebSpeechSTT();
     const diagramService = new DiagramSessionService(reasoningEngine, layoutEngine, tts);
     const schemaService = new SchemaSessionService(schemaReasoningEngine, tts);
-    return { diagramService, schemaService, stt, usingLiveModel: Boolean(apiKey) };
+    // Bidirectional sync: links the two the moment a diagram is generated from a schema, then
+    // keeps them in sync as either side is edited. See SyncCoordinator.ts.
+    const syncCoordinator = new SyncCoordinator(diagramService, schemaService, reasoningEngine, schemaReasoningEngine);
+    return { diagramService, schemaService, syncCoordinator, stt, usingLiveModel: Boolean(apiKey) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsVersion]);
 }
@@ -52,6 +56,8 @@ export default function App() {
   const [expandedPane, setExpandedPane] = useState<PaneId | null>(null);
 
   useEffect(() => subscribeToSettings(() => setSettingsVersion((v) => v + 1)), []);
+
+  const ensureChatVisible = useCallback(() => setExpandedPane((pane) => (pane === 'chat' ? pane : null)), []);
 
   return (
     <div className="app-shell">
@@ -110,7 +116,14 @@ export default function App() {
           onExpand={() => setExpandedPane('chat')}
           onCollapse={() => setExpandedPane(null)}
         >
-          <ChatPane state={diagramState} service={diagramService} stt={stt} />
+          <ChatPane
+            diagramState={diagramState}
+            diagramService={diagramService}
+            schemaState={schemaState}
+            schemaService={schemaService}
+            stt={stt}
+            onDiagramNeedsConfirmation={ensureChatVisible}
+          />
         </ExpandablePane>
       </main>
 

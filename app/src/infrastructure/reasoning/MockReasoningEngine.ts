@@ -10,7 +10,9 @@
 import { nextId } from '../../domain/idGenerator';
 import type { Decision, DiagramGraph, EdgeEntity, GraphDiff, LabelEntity, NodeEntity, NodeType, ProtocolType } from '../../domain/entities';
 import { emptyGraph } from '../../domain/entities';
-import type { IReasoningEngine, ParsePromptResult, ProposeEditResult } from '../../domain/ports';
+import type { IReasoningEngine, ParsePromptResult, ProposeEditResult, TranslatedEdit } from '../../domain/ports';
+import type { Correspondence } from '../../domain/sync';
+import type { SchemaDiff } from '../../domain/schema/entities';
 
 const KEYWORD_TO_TYPE: Array<{ pattern: RegExp; type: NodeType; humanName: string }> = [
   { pattern: /load[\s-]?balancer|\blb\b/, type: 'load_balancer', humanName: 'Load Balancer' },
@@ -203,6 +205,57 @@ export class MockReasoningEngine implements IReasoningEngine {
       default:
         return {};
     }
+  }
+
+  async describe(graph: DiagramGraph): Promise<string> {
+    const nodeCount = Object.keys(graph.nodes).length;
+    const edgeCount = Object.keys(graph.edges).length;
+    if (nodeCount === 0) return 'The diagram is empty. What would you like to build?';
+    const byType = new Map<string, number>();
+    for (const n of Object.values(graph.nodes)) byType.set(n.type, (byType.get(n.type) ?? 0) + 1);
+    const summary = Array.from(byType.entries()).map(([type, count]) => `${count} ${type.replace('_', ' ')}`).join(', ');
+    return `I built ${nodeCount} component${nodeCount === 1 ? '' : 's'} (${summary}) connected by ${edgeCount} link${edgeCount === 1 ? '' : 's'}. Does this match what you had in mind, or is there anything you'd like changed?`;
+  }
+
+  async translateSchemaEdit(diff: SchemaDiff, correspondence: Correspondence, graph: DiagramGraph): Promise<TranslatedEdit<GraphDiff>> {
+    const addNodes: NodeEntity[] = [];
+    const addLabels: LabelEntity[] = [];
+    const addCorrespondence: Array<{ nodeId: string; tableId: string }> = [];
+    for (const table of diff.addTables ?? []) {
+      const nodeId = nextId('n');
+      addNodes.push({ id: nodeId, type: 'database', x: 0, y: 0, width: 160, height: 56 });
+      const labelId = nextId('lbl');
+      addLabels.push({ id: labelId, elementId: nodeId, elementKind: 'node', text: table.name, dx: 0, dy: 0 });
+      addCorrespondence.push({ nodeId, tableId: table.id });
+    }
+
+    const removeNodeIds: string[] = [];
+    const removedTableIds: string[] = [];
+    for (const tableId of diff.removeTableIds ?? []) {
+      const nodeId = correspondence.tableToNode[tableId];
+      if (nodeId) {
+        removeNodeIds.push(nodeId);
+        removedTableIds.push(tableId);
+      }
+    }
+
+    const updateLabels: Array<Partial<LabelEntity> & { id: string }> = [];
+    for (const update of diff.updateTables ?? []) {
+      if (!update.name) continue;
+      const nodeId = correspondence.tableToNode[update.id];
+      if (!nodeId) continue;
+      const label = Object.values(graph.labels).find((l) => l.elementId === nodeId && l.elementKind === 'node');
+      if (label) updateLabels.push({ id: label.id, text: update.name });
+    }
+
+    const result: GraphDiff = {
+      ...(addNodes.length ? { addNodes } : {}),
+      ...(addLabels.length ? { addLabels } : {}),
+      ...(removeNodeIds.length ? { removeNodeIds } : {}),
+      ...(updateLabels.length ? { updateLabels } : {}),
+    };
+
+    return { diff: result, addCorrespondence, removedNodeIds: removeNodeIds, removedTableIds };
   }
 }
 

@@ -9,8 +9,10 @@
 
 import { nextId } from '../../domain/idGenerator';
 import { emptyGraph, type Decision, type DecisionCategory, type DiagramGraph, type GraphDiff, type NodeType, type ProtocolType } from '../../domain/entities';
-import type { IReasoningEngine, ParsePromptResult, ProposeEditResult } from '../../domain/ports';
-import { callGeminiForJson } from './geminiClient';
+import type { IReasoningEngine, ParsePromptResult, ProposeEditResult, TranslatedEdit } from '../../domain/ports';
+import type { Correspondence } from '../../domain/sync';
+import type { SchemaDiff } from '../../domain/schema/entities';
+import { callGeminiForJson, callGeminiForText } from './geminiClient';
 
 const NODE_TYPES: NodeType[] = ['client', 'server', 'database', 'load_balancer', 'cache', 'queue', 'api_gateway', 'external_service'];
 const PROTOCOLS: ProtocolType[] = ['HTTP', 'gRPC', 'SQL', 'pub/sub'];
@@ -130,5 +132,50 @@ Respond with ONLY a GraphDiff JSON object applying that change:
       `Decision: ${JSON.stringify(decision)}\nChosen option: "${decision.options[chosenOptionIndex]}"\nCurrent graph: ${JSON.stringify(graph)}`
     );
     return raw as GraphDiff;
+  }
+
+  async describe(graph: DiagramGraph): Promise<string> {
+    return callGeminiForText(
+      this.apiKey,
+      `You describe a system architecture diagram to a blind or low-vision user in plain,
+conversational language (Dialogic HCXAI — this is spoken and read as chat, not a report).
+In 2-4 sentences: summarize what was built, then end with one concrete follow-up question
+asking whether it matches what they had in mind, or what they'd like changed. Plain prose
+only, no markdown, no bullet points.`,
+      `Diagram: ${JSON.stringify(graph)}`
+    );
+  }
+
+  async translateSchemaEdit(diff: SchemaDiff, correspondence: Correspondence, currentGraph: DiagramGraph): Promise<TranslatedEdit<GraphDiff>> {
+    const deterministicRemoveNodeIds = (diff.removeTableIds ?? [])
+      .map((tableId) => correspondence.tableToNode[tableId])
+      .filter((id): id is string => Boolean(id));
+
+    const raw = await callGeminiForJson(
+      this.apiKey,
+      `This diagram was generated from a database schema, and that schema just changed.
+Translate the schema change into an equivalent change to the diagram so the two stay in
+sync. Respond with ONLY JSON:
+{ "diff": { "addNodes": [...], "removeNodeIds": [...], "updateNodes": [...],
+            "addEdges": [...], "removeEdgeIds": [...], "updateEdges": [...],
+            "addLabels": [...], "removeLabelIds": [...], "updateLabels": [...] },
+  "addCorrespondence": [{ "nodeId": string, "tableId": string }] }
+Represent every added table as a node of type "database" plus a label carrying the table's
+name. For anything that already exists, reuse the exact node/edge/label id from the current
+diagram — use the tableId->nodeId correspondence map to find it. "addCorrespondence" must
+list a pairing for every node you add, using the same tableId the schema change introduced.
+Only include diff fields that actually change.`,
+      `Correspondence (tableId -> nodeId): ${JSON.stringify(correspondence.tableToNode)}\nCurrent diagram: ${JSON.stringify(currentGraph)}\nSchema change: ${JSON.stringify(diff)}`
+    );
+    const obj = raw as { diff?: GraphDiff; addCorrespondence?: Array<{ nodeId: string; tableId: string }> };
+    const modelDiff = obj.diff ?? {};
+    const removeNodeIds = Array.from(new Set([...(modelDiff.removeNodeIds ?? []), ...deterministicRemoveNodeIds]));
+
+    return {
+      diff: { ...modelDiff, ...(removeNodeIds.length ? { removeNodeIds } : {}) },
+      addCorrespondence: obj.addCorrespondence ?? [],
+      removedNodeIds: removeNodeIds,
+      removedTableIds: diff.removeTableIds ?? [],
+    };
   }
 }

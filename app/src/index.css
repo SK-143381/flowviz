@@ -144,6 +144,14 @@ body {
   gap: 12px;
 }
 
+.chat-target-toggle {
+  display: flex;
+  gap: 6px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
 .chat-log {
   flex: 1;
   overflow-y: auto;
@@ -176,6 +184,18 @@ body {
 .chat-entry--system {
   align-self: flex-start;
   border-bottom-left-radius: 4px;
+}
+
+.chat-entry--thinking {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.decision-thinking {
+  opacity: 0.6;
+  font-style: italic;
+  font-size: 13px;
+  margin: 0;
 }
 
 .chat-error {
@@ -377,23 +397,11 @@ legend {
   min-height: 0;
 }
 
-.schema-toolbar,
-.schema-prompt-row {
+.schema-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-.schema-prompt-row input[type='text'] {
-  flex: 1;
-  min-width: 160px;
-  padding: 11px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--chip-bg);
-  color: inherit;
-  font-size: 14px;
 }
 
 .doc-context-chip {
@@ -621,6 +629,19 @@ legend {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.settings-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-checkbox-row input[type='checkbox'] {
+  accent-color: var(--ink);
+  padding: 0;
 }
 
 .settings-actions {

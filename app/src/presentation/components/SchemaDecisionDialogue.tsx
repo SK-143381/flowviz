@@ -12,40 +12,44 @@ export function SchemaDecisionDialogue({ state, service }: Props) {
   const decision = state.pendingDecisions[state.activeDecisionIndex];
   const [chosen, setChosen] = useState<number | null>(null);
 
+  // See DecisionDialogue.tsx for why this starts unselected rather than pre-checked to the
+  // assumed option (a re-click on an already-checked radio never fires onChange).
   useEffect(() => {
-    setChosen(decision ? decision.assumedOptionIndex : null);
+    setChosen(null);
   }, [decision?.id]);
 
   if (state.mode !== 'confirming' || !decision) return null;
 
+  const choose = (i: number) => {
+    if (state.thinking) return;
+    setChosen(i);
+    if (i === decision.assumedOptionIndex) service.confirmActiveDecision();
+    else service.contestActiveDecision(i);
+  };
+
   return (
     <section className="decision-dialogue" aria-live="assertive" aria-label="Schema decision confirmation">
       <p className="decision-progress">
-        Table decision {state.activeDecisionIndex + 1} of {state.pendingDecisions.length}
+        {state.pendingDecisions.length > 1
+          ? `Quick check ${state.activeDecisionIndex + 1} of ${state.pendingDecisions.length}`
+          : 'One thing to double-check'}
       </p>
       <p className="decision-description">{decision.description}</p>
       <fieldset>
-        <legend>Is this correct, or would you like a different alternative?</legend>
+        <legend>Did I get that right? Pick one to confirm it.</legend>
         {decision.options.map((opt, i) => (
           <label key={opt} className="decision-option">
-            <input type="radio" name={decision.id} checked={chosen === i} onChange={() => setChosen(i)} />
+            <input type="radio" name={decision.id} checked={chosen === i} disabled={state.thinking} onChange={() => choose(i)} />
             {opt}
-            {i === decision.assumedOptionIndex ? ' (assumed)' : ''}
+            {i === decision.assumedOptionIndex ? ' (my guess)' : ''}
           </label>
         ))}
       </fieldset>
-      <div className="decision-actions">
-        <button type="button" onClick={() => service.confirmActiveDecision()}>
-          Confirm assumption
-        </button>
-        <button
-          type="button"
-          onClick={() => service.contestActiveDecision(chosen ?? decision.assumedOptionIndex)}
-          disabled={chosen === null || chosen === decision.assumedOptionIndex}
-        >
-          Use selected alternative
-        </button>
-      </div>
+      {state.thinking && (
+        <p role="status" className="decision-thinking">
+          Thinking…
+        </p>
+      )}
     </section>
   );
 }
