@@ -18,16 +18,20 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT_DIR = path.join(APP_ROOT, '..', 'docs', 'images');
+// The in-app About panel serves these same images, so a copy has to live inside app/public
+// (Vite only bundles/serves static assets from its own public dir, not from ../docs).
+const PUBLIC_COPY_DIR = path.join(APP_ROOT, 'public', 'screenshots');
 
 const PORT = 4311;
 const BASE_URL = `http://localhost:${PORT}/flowviz/`;
 
 mkdirSync(OUT_DIR, { recursive: true });
+mkdirSync(PUBLIC_COPY_DIR, { recursive: true });
 
 async function waitForServer(url, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
@@ -60,11 +64,16 @@ async function shoot(page, name) {
 }
 
 async function confirmAllDecisions(page, max = 30) {
+  // DecisionDialogue.tsx has no separate "confirm" button, clicking the radio labeled
+  // "(my guess)" immediately confirms that decision via its onChange handler.
   for (let i = 0; i < max; i++) {
-    const btn = page.locator('button:has-text("Confirm assumption")');
-    if ((await btn.count()) === 0) break;
-    await btn.click();
-    await page.waitForTimeout(80);
+    const guessRadio = page.locator('.decision-option:has-text("(my guess)") input[type="radio"]');
+    if ((await guessRadio.count()) === 0) break;
+    // Not .check(): choosing the guess immediately advances to (and remounts) the next
+    // decision, so the post-click "is it checked" assertion .check() makes would fail
+    // against a node that's already been replaced.
+    await guessRadio.first().click({ force: true });
+    await page.waitForTimeout(150);
   }
 }
 
@@ -114,7 +123,12 @@ async function main() {
     await page.waitForTimeout(300);
     await shoot(page, '06-expanded-pane');
 
-    console.log('\nDone. Reference these files from README.md under docs/images/.');
+    console.log('\nCopying into app/public/screenshots/ for the in-app About panel...');
+    for (const file of readdirSync(OUT_DIR)) {
+      if (file.endsWith('.png')) copyFileSync(path.join(OUT_DIR, file), path.join(PUBLIC_COPY_DIR, file));
+    }
+
+    console.log('\nDone. Reference these files from README.md under docs/images/, and the About panel reads them from app/public/screenshots/.');
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.kill();

@@ -17,6 +17,7 @@ import { ChatPane } from './presentation/components/ChatPane';
 import { Toolbar } from './presentation/components/Toolbar';
 import { SchemaPane } from './presentation/components/SchemaPane';
 import { SettingsPanel } from './presentation/components/SettingsPanel';
+import { AboutPanel } from './presentation/components/AboutPanel';
 import { ExpandablePane } from './presentation/components/ExpandablePane';
 
 type PaneId = 'schema' | 'canvas' | 'chat';
@@ -49,6 +50,7 @@ function useComposedSession(settingsVersion: number) {
 export default function App() {
   const [settingsVersion, setSettingsVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const { diagramService, schemaService, stt, usingLiveModel } = useComposedSession(settingsVersion);
   const diagramState = useDiagramSession(diagramService);
   const schemaState = useSchemaSession(schemaService);
@@ -70,9 +72,14 @@ export default function App() {
               drawn; every edit only touches the layer it targets. {usingLiveModel ? 'Using live Gemini generation.' : 'Using the offline demo engine — add a Gemini API key in Settings for live generation.'}
             </p>
           </div>
-          <button type="button" onClick={() => setSettingsOpen(true)}>
-            Settings
-          </button>
+          <div className="app-header-actions">
+            <button type="button" onClick={() => setAboutOpen(true)}>
+              About
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)}>
+              Settings
+            </button>
+          </div>
         </div>
       </header>
 
@@ -128,6 +135,7 @@ export default function App() {
       </main>
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AboutPanel open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 }
