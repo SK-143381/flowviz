@@ -89,6 +89,28 @@ Every pane with a canvas/grid has an **Export image** control (PNG / JPEG / SVG)
 diagram canvas keeps its JSON export and gained a **Describe diagram** button (a
 GenAssist-style plain-language summary, read aloud).
 
+## One chat pane, two pipelines, three modes (see `docs/architecture.md` Section 7)
+
+The chat pane on the right drives **both** the diagram and the schema — a small toggle at
+its top switches which one a message targets. For whichever is targeted: an empty
+graph/schema routes the message through **Create**; a non-empty one routes it through
+**Edit** (both panes now support natural-language edits, not just the diagram). Once
+generation finishes, the assistant automatically posts a plain-language summary of what it
+built and asks a follow-up question in the same chat log (**Describe**) — replying with a
+correction is just the next chat message, routed straight through Edit. Every interpretive
+decision it needs you to confirm is a single click/tap: select the option you want (your pick
+doesn't have to match its guess) and it advances immediately — no separate confirm button.
+A `"Thinking…"` status appears in the log during any network round-trip, and a **Settings**
+checkbox lets you mute spoken confirmations if you don't want the browser's tab-level "playing
+audio" indicator showing up while you work.
+
+Once a diagram has been generated **from** a schema (via "Generate architecture diagram"),
+the two stay in sync: editing either one — including a structural edit like "split
+CUSTOMERS into VIP and non-VIP customers" — automatically reflects on the other side, logged
+as a `"Synced from schema: …"` / `"Synced from diagram: …"` chat entry. A diagram built from
+a free-text prompt instead of a schema has nothing to sync with and behaves exactly as
+before.
+
 **Bring your own Gemini key**: click **Settings** and paste an API key — nothing is
 required to run the app, but once a key is saved, both the diagram and schema reasoning
 engines switch from the offline mock parser to live Gemini generation automatically (no
@@ -131,3 +153,13 @@ immediate next step, not part of this milestone.
 - No persistence/backend yet — session state lives in memory for the tab's lifetime.
 - No NVDA/VoiceOver pass yet on the new schema-grid controls (custom foreign-key cell,
   Tab/Enter interaction) — only keyboard-driven Playwright testing so far.
+- Bidirectional schema↔diagram sync (`SyncCoordinator`) is best-effort, especially on the
+  offline Mock engines — the "split one node/table into several" case is handled by a small
+  heuristic, not real reasoning. A translation failure is caught and logged, never blocks or
+  rolls back the edit that already succeeded on its own side. Only diagrams generated *from*
+  a schema are linked; sync itself has not been exercised against a live Gemini key (same
+  caveat as the rest of the Gemini-backed engines above).
+- `translateDiagramEdit`/`translateSchemaEdit` only react to structural diffs (add/remove/
+  rename/split-shaped changes) — node/edge position (layout-only) changes never sync, and
+  schema-side column-level edits (add/remove/edit a column, cycle a foreign key) have no
+  diagram-level equivalent to sync to.

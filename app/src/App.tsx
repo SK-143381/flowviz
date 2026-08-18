@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiagramSessionService } from './application/DiagramSessionService';
 import { SchemaSessionService } from './application/SchemaSessionService';
+import { SyncCoordinator } from './application/SyncCoordinator';
 import { MockReasoningEngine } from './infrastructure/reasoning/MockReasoningEngine';
 import { MockSchemaReasoningEngine } from './infrastructure/reasoning/MockSchemaReasoningEngine';
 import { GeminiReasoningEngine } from './infrastructure/reasoning/GeminiReasoningEngine';
@@ -16,6 +17,7 @@ import { ChatPane } from './presentation/components/ChatPane';
 import { Toolbar } from './presentation/components/Toolbar';
 import { SchemaPane } from './presentation/components/SchemaPane';
 import { SettingsPanel } from './presentation/components/SettingsPanel';
+import { AboutPanel } from './presentation/components/AboutPanel';
 import { ExpandablePane } from './presentation/components/ExpandablePane';
 
 type PaneId = 'schema' | 'canvas' | 'chat';
@@ -37,7 +39,10 @@ function useComposedSession(settingsVersion: number) {
     const stt = new WebSpeechSTT();
     const diagramService = new DiagramSessionService(reasoningEngine, layoutEngine, tts);
     const schemaService = new SchemaSessionService(schemaReasoningEngine, tts);
-    return { diagramService, schemaService, stt, usingLiveModel: Boolean(apiKey) };
+    // Bidirectional sync: links the two the moment a diagram is generated from a schema, then
+    // keeps them in sync as either side is edited. See SyncCoordinator.ts.
+    const syncCoordinator = new SyncCoordinator(diagramService, schemaService, reasoningEngine, schemaReasoningEngine);
+    return { diagramService, schemaService, syncCoordinator, stt, usingLiveModel: Boolean(apiKey) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsVersion]);
 }
@@ -45,6 +50,7 @@ function useComposedSession(settingsVersion: number) {
 export default function App() {
   const [settingsVersion, setSettingsVersion] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const { diagramService, schemaService, stt, usingLiveModel } = useComposedSession(settingsVersion);
   const diagramState = useDiagramSession(diagramService);
   const schemaState = useSchemaSession(schemaService);
@@ -52,6 +58,8 @@ export default function App() {
   const [expandedPane, setExpandedPane] = useState<PaneId | null>(null);
 
   useEffect(() => subscribeToSettings(() => setSettingsVersion((v) => v + 1)), []);
+
+  const ensureChatVisible = useCallback(() => setExpandedPane((pane) => (pane === 'chat' ? pane : null)), []);
 
   return (
     <div className="app-shell">
@@ -64,9 +72,14 @@ export default function App() {
               drawn; every edit only touches the layer it targets. {usingLiveModel ? 'Using live Gemini generation.' : 'Using the offline demo engine — add a Gemini API key in Settings for live generation.'}
             </p>
           </div>
-          <button type="button" onClick={() => setSettingsOpen(true)}>
-            Settings
-          </button>
+          <div className="app-header-actions">
+            <button type="button" onClick={() => setAboutOpen(true)}>
+              About
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)}>
+              Settings
+            </button>
+          </div>
         </div>
       </header>
 
@@ -110,11 +123,19 @@ export default function App() {
           onExpand={() => setExpandedPane('chat')}
           onCollapse={() => setExpandedPane(null)}
         >
-          <ChatPane state={diagramState} service={diagramService} stt={stt} />
+          <ChatPane
+            diagramState={diagramState}
+            diagramService={diagramService}
+            schemaState={schemaState}
+            schemaService={schemaService}
+            stt={stt}
+            onDiagramNeedsConfirmation={ensureChatVisible}
+          />
         </ExpandablePane>
       </main>
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AboutPanel open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 }

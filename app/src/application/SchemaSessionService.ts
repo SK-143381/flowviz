@@ -21,6 +21,7 @@ import {
   schemaTableList,
   type ColumnType,
   type SchemaColumn,
+  type SchemaDiff,
   type SchemaModel,
   type SchemaTable,
 } from '../domain/schema/entities';
@@ -29,10 +30,14 @@ import { nextId } from './ids';
 import { initialSchemaSessionState, type SchemaSessionState } from './schemaTypes';
 
 type Listener = () => void;
+type EditAppliedListener = (diff: SchemaDiff) => void;
+type ResetListener = () => void;
 
 export class SchemaSessionService {
   private state: SchemaSessionState;
   private listeners = new Set<Listener>();
+  private editListeners = new Set<EditAppliedListener>();
+  private resetListeners = new Set<ResetListener>();
   private readonly reasoningEngine: ISchemaReasoningEngine;
   private readonly tts: ITextToSpeech;
 
@@ -49,6 +54,29 @@ export class SchemaSessionService {
     return () => this.listeners.delete(listener);
   };
 
+  /** Fires with the diff every time a schema mutation (chat-driven or a direct grid edit) is
+   *  actually applied — used by SyncCoordinator to translate the change into a linked diagram. */
+  onEditApplied = (listener: EditAppliedListener): (() => void) => {
+    this.editListeners.add(listener);
+    return () => this.editListeners.delete(listener);
+  };
+
+  /** Fires on a full schema replacement (load default / clear) — these legitimately break any
+   *  existing correspondence with a linked diagram rather than translating as a diff. */
+  onReset = (listener: ResetListener): (() => void) => {
+    this.resetListeners.add(listener);
+    return () => this.resetListeners.delete(listener);
+  };
+
+  /** Applies a diff, updates state, and notifies edit listeners — the single choke point every
+   *  structural mutation (AI-driven or direct grid edit) routes through. */
+  private mutate(diff: SchemaDiff, extraPatch?: Partial<SchemaSessionState>): SchemaModel {
+    const schema = applySchemaDiff(this.state.schema, diff);
+    this.setState({ schema, ...extraPatch });
+    for (const l of this.editListeners) l(diff);
+    return schema;
+  }
+
   private setState(patch: Partial<SchemaSessionState>) {
     this.state = { ...this.state, ...patch };
     for (const l of this.listeners) l();
@@ -64,7 +92,7 @@ export class SchemaSessionService {
 
   async generateFromPrompt(prompt: string): Promise<void> {
     this.log('user', prompt);
-    this.setState({ error: null });
+    this.setState({ error: null, thinking: true });
     try {
       const { decisions, draftSchema } = await this.reasoningEngine.parseSchemaPrompt(prompt, this.state.schema);
       this.log(
@@ -80,9 +108,51 @@ export class SchemaSessionService {
       };
       this.setState(next);
       if (decisions.length > 0) this.speakActive(next);
-      else this.tts.speak('Schema ready.');
+      else await this.announceAndAsk(draftSchema);
     } catch (err) {
       this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
+    }
+  }
+
+  /** Dialogic post-generation description: summarizes the result and asks a follow-up, so
+   *  confirming it is just the user's next chat message (routed through requestEdit). */
+  private async announceAndAsk(schema: SchemaModel): Promise<void> {
+    try {
+      const message = await this.reasoningEngine.describeSchema(schema);
+      this.log('system', message);
+      this.tts.speak(message);
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // AI-driven edit (same decision-confirmation shape; the diff applies immediately since
+  // schema mutations are already synchronous — see the class docstring)
+  // ---------------------------------------------------------------------
+
+  async requestEdit(instruction: string): Promise<void> {
+    this.log('user', instruction);
+    this.setState({ error: null, thinking: true });
+    try {
+      const { decisions, diff } = await this.reasoningEngine.proposeEdit(instruction, this.state.schema);
+      this.mutate(diff, {
+        mode: decisions.length > 0 ? 'confirming' : 'ready',
+        pendingDecisions: decisions,
+        activeDecisionIndex: 0,
+      });
+      if (decisions.length > 0) {
+        this.speakActive(this.state);
+      } else {
+        this.log('system', 'Edit applied.');
+        this.tts.speak('Edit applied.');
+      }
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -104,26 +174,33 @@ export class SchemaSessionService {
     const decision = pendingDecisions[activeDecisionIndex];
     if (!decision) return;
 
-    let schema = this.state.schema;
-    if (status === 'contested' && chosenOptionIndex !== undefined && chosenOptionIndex !== decision.assumedOptionIndex) {
-      const diff = await this.reasoningEngine.reviseSchemaDecision(decision, chosenOptionIndex, schema);
-      schema = applySchemaDiff(schema, diff);
-      this.log('system', `Updated: ${decision.description} -> "${decision.options[chosenOptionIndex]}".`);
-    } else {
-      this.log('user', `Confirmed: ${decision.options[decision.assumedOptionIndex]}`);
-    }
+    this.setState({ thinking: true });
+    try {
+      let schema = this.state.schema;
+      if (status === 'contested' && chosenOptionIndex !== undefined && chosenOptionIndex !== decision.assumedOptionIndex) {
+        const diff = await this.reasoningEngine.reviseSchemaDecision(decision, chosenOptionIndex, schema);
+        schema = applySchemaDiff(schema, diff);
+        this.log('system', `Updated: ${decision.description} -> "${decision.options[chosenOptionIndex]}".`);
+      } else {
+        this.log('user', `Confirmed: ${decision.options[decision.assumedOptionIndex]}`);
+      }
 
-    const updatedDecisions = pendingDecisions.map((d, i) => (i === activeDecisionIndex ? { ...d, status, chosenOptionIndex } : d));
-    const nextIndex = activeDecisionIndex + 1;
-    const next: SchemaSessionState = { ...this.state, schema, pendingDecisions: updatedDecisions, activeDecisionIndex: nextIndex };
-    this.setState(next);
+      const updatedDecisions = pendingDecisions.map((d, i) => (i === activeDecisionIndex ? { ...d, status, chosenOptionIndex } : d));
+      const nextIndex = activeDecisionIndex + 1;
+      const next: SchemaSessionState = { ...this.state, schema, pendingDecisions: updatedDecisions, activeDecisionIndex: nextIndex };
+      this.setState(next);
 
-    if (nextIndex >= updatedDecisions.length) {
-      this.setState({ mode: 'ready' });
-      this.tts.speak('All schema decisions confirmed.');
-      this.log('system', 'All schema decisions locked.');
-    } else {
-      this.speakActive(next);
+      if (nextIndex >= updatedDecisions.length) {
+        this.setState({ mode: 'ready' });
+        this.log('system', 'All schema decisions locked.');
+        await this.announceAndAsk(schema);
+      } else {
+        this.speakActive(next);
+      }
+    } catch (err) {
+      this.setState({ error: (err as Error).message });
+    } finally {
+      this.setState({ thinking: false });
     }
   }
 
@@ -134,10 +211,12 @@ export class SchemaSessionService {
   loadDefaultSchema(): void {
     this.setState({ schema: loadDefaultSchema(), mode: 'ready', pendingDecisions: [], activeDecisionIndex: 0, error: null });
     this.log('system', 'Loaded the default retail/warehouse sample schema.');
+    for (const l of this.resetListeners) l();
   }
 
   clearSchema(): void {
     this.setState({ schema: emptySchema(), mode: 'idle', pendingDecisions: [], activeDecisionIndex: 0, error: null, log: [] });
+    for (const l of this.resetListeners) l();
   }
 
   addTable(): SchemaTable {
@@ -146,8 +225,7 @@ export class SchemaSessionService {
       name: `NEW_TABLE_${schemaTableList(this.state.schema).length + 1}`,
       columns: [{ id: nextId('col'), name: 'id', type: 'int', isPrimaryKey: true, references: null }],
     };
-    const schema = applySchemaDiff(this.state.schema, { addTables: [table] });
-    this.setState({ schema, mode: 'ready' });
+    this.mutate({ addTables: [table] }, { mode: 'ready' });
     return table;
   }
 
@@ -158,39 +236,32 @@ export class SchemaSessionService {
       ...t,
       columns: t.columns.map((c) => (c.references?.tableId === tableId ? { ...c, references: null } : c)),
     }));
-    let schema = applySchemaDiff(this.state.schema, { removeTableIds: [tableId] });
-    schema = applySchemaDiff(schema, { replaceColumns: tables.filter((t) => t.id !== tableId).map((t) => ({ tableId: t.id, columns: t.columns })) });
-    this.setState({ schema });
+    const replaceColumns = tables.filter((t) => t.id !== tableId).map((t) => ({ tableId: t.id, columns: t.columns }));
+    this.mutate({ removeTableIds: [tableId], replaceColumns });
   }
 
   renameTable(tableId: string, name: string): void {
-    const schema = applySchemaDiff(this.state.schema, { updateTables: [{ id: tableId, name }] });
-    this.setState({ schema });
+    this.mutate({ updateTables: [{ id: tableId, name }] });
   }
 
   addColumn(tableId: string): void {
     const table = this.state.schema.tables[tableId];
     if (!table) return;
     const column: SchemaColumn = { id: nextId('col'), name: 'new_column', type: 'string', isPrimaryKey: false, references: null };
-    const schema = applySchemaDiff(this.state.schema, { replaceColumns: [{ tableId, columns: [...table.columns, column] }] });
-    this.setState({ schema });
+    this.mutate({ replaceColumns: [{ tableId, columns: [...table.columns, column] }] });
   }
 
   removeColumn(tableId: string, columnId: string): void {
     const table = this.state.schema.tables[tableId];
     if (!table) return;
-    const schema = applySchemaDiff(this.state.schema, {
-      replaceColumns: [{ tableId, columns: table.columns.filter((c) => c.id !== columnId) }],
-    });
-    this.setState({ schema });
+    this.mutate({ replaceColumns: [{ tableId, columns: table.columns.filter((c) => c.id !== columnId) }] });
   }
 
   updateColumn(tableId: string, columnId: string, patch: Partial<Pick<SchemaColumn, 'name' | 'type' | 'isPrimaryKey'>>): void {
     const table = this.state.schema.tables[tableId];
     if (!table) return;
     const columns = table.columns.map((c) => (c.id === columnId ? { ...c, ...patch } : c));
-    const schema = applySchemaDiff(this.state.schema, { replaceColumns: [{ tableId, columns }] });
-    this.setState({ schema });
+    this.mutate({ replaceColumns: [{ tableId, columns }] });
   }
 
   setColumnType(tableId: string, columnId: string, type: ColumnType): void {
@@ -201,6 +272,9 @@ export class SchemaSessionService {
    * The "press Enter to cycle candidates, Tab to move on" relation-picker: each Enter press
    * on a foreign-key cell advances `references` to the next primary-key candidate in the
    * schema (excluding the column's own table), wrapping back to null (unset) after the last.
+   * Deliberately bypasses mutate()/onEditApplied: this fires on every keystroke while
+   * browsing candidates, and a column-level FK change has no node-level diagram equivalent
+   * to sync anyway (SyncCoordinator only reacts to table/column-list-shaped changes).
    */
   cycleColumnReference(tableId: string, columnId: string): void {
     const table = this.state.schema.tables[tableId];
@@ -223,6 +297,30 @@ export class SchemaSessionService {
 
   exportSchema(): SchemaModel {
     return this.state.schema;
+  }
+
+  /**
+   * Applies a diff that SyncCoordinator already decided (translated from a linked diagram
+   * edit) without going through the decision-confirmation loop — the user already confirmed
+   * the original edit on the diagram side; this is its mechanical consequence here. Does NOT
+   * call mutate()/emit onEditApplied, so this never re-triggers a translation back the other
+   * way. Mirrors DiagramSessionService.applySyncedDiff.
+   */
+  async applySyncedDiff(diff: SchemaDiff, summary: string): Promise<void> {
+    let combinedDiff = diff;
+    if (diff.removeTableIds && diff.removeTableIds.length > 0) {
+      const removedIds = new Set(diff.removeTableIds);
+      const tables = schemaTableList(this.state.schema).map((t) => ({
+        ...t,
+        columns: t.columns.map((c) => (c.references && removedIds.has(c.references.tableId) ? { ...c, references: null } : c)),
+      }));
+      const replaceColumns = tables.filter((t) => !removedIds.has(t.id)).map((t) => ({ tableId: t.id, columns: t.columns }));
+      combinedDiff = { ...diff, replaceColumns: [...(diff.replaceColumns ?? []), ...replaceColumns] };
+    }
+    const schema = applySchemaDiff(this.state.schema, combinedDiff);
+    this.setState({ schema });
+    this.log('system', `Synced from diagram: ${summary}`);
+    this.tts.speak(`Synced from diagram: ${summary}`);
   }
 }
 

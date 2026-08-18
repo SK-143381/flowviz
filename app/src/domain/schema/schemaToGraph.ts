@@ -19,6 +19,8 @@ function nextGraphId(prefix: string): string {
 export interface SchemaToGraphResult {
   draftGraph: DiagramGraph;
   decisions: Decision[];
+  /** tableId -> nodeId, for SyncCoordinator to link the two once this graph is generated. */
+  correspondence: Array<{ tableId: string; nodeId: string }>;
 }
 
 const COMPONENT_TYPE_OPTIONS = ['database', 'server', 'api_gateway', 'external_service'] as const;
@@ -28,7 +30,7 @@ export function schemaModelToDraftGraph(schema: SchemaModel): SchemaToGraphResul
   const graph = emptyGraph();
   const decisions: Decision[] = [];
   const tables = schemaTableList(schema);
-  if (tables.length === 0) return { draftGraph: graph, decisions };
+  if (tables.length === 0) return { draftGraph: graph, decisions, correspondence: [] };
 
   const tableToNodeId = new Map<string, string>();
 
@@ -85,5 +87,6 @@ export function schemaModelToDraftGraph(schema: SchemaModel): SchemaToGraphResul
     }
   }
 
-  return { draftGraph: graph, decisions };
+  const correspondence = Array.from(tableToNodeId.entries()).map(([tableId, nodeId]) => ({ tableId, nodeId }));
+  return { draftGraph: graph, decisions, correspondence };
 }

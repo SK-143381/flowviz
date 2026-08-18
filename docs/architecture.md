@@ -653,3 +653,196 @@ the Settings panel opening with the API-key field present — zero console error
 and the schema pane's own HTML-to-image export path (`exportHtmlElementAsImage`) beyond a
 type-check — `foreignObject`-based rasterization is a known-finicky browser feature and
 should be spot-checked in a real browser before relying on it.
+
+## 7. Chat unification, Edit/Describe pipelines for schema, decision-UX fixes, and bidirectional schema↔diagram sync
+
+A larger follow-up pass addressing: no single chat surface driving both panes, no NL edit
+pipeline for schema (only diagram had one), no dialogic post-generation follow-up, a
+confusing two-button decision-confirmation flow, diagram nodes rendering unlaid-out during
+confirmation, no way to mute spoken output, and no propagation between the diagram and the
+schema it was generated from when either is edited afterward.
+
+### Unified `ChatPane.tsx`
+
+`ChatPane` now drives **both** session services from one surface instead of `SchemaPane.tsx`
+owning a second, weaker prompt row. Props changed from `{ state, service, stt }` to
+`{ diagramState, diagramService, schemaState, schemaService, stt, onDiagramNeedsConfirmation? }`.
+A `target: 'diagram' | 'schema'` radio toggle (`.chat-target-toggle`) at the top of the pane
+selects which service the input/log/decision-dialogue below it is bound to; submit still
+uses the same empty-graph/empty-schema heuristic to decide Create vs. Edit
+(`isEmptyGraph`/`isEmptySchema`), just per-target now. `SchemaPane.tsx` lost its
+`schema-prompt-row` form, `SchemaDecisionDialogue`, and error paragraph entirely — those are
+now rendered by `ChatPane` when `target === 'schema'`; this is also the first time
+`SchemaSessionState.log` (always populated, never previously rendered anywhere) becomes
+visible in the UI. `ChatPane` also auto-switches `target` to `'diagram'` and calls
+`onDiagramNeedsConfirmation()` — wired in `App.tsx` to un-expand any zoomed pane other than
+`chat` — whenever the diagram enters `confirming_generation`/`confirming_edit`, so a decision
+raised by clicking "Generate architecture diagram" in the schema pane is never silently
+hidden behind the wrong toggle state or an unrelated expanded pane.
+
+### Schema Edit pipeline (new)
+
+`SchemaSessionService` previously only supported Create (`generateFromPrompt`); it had no
+edit equivalent to `DiagramSessionService.requestEdit`. Added:
+- `domain/ports.ts`: `ISchemaReasoningEngine.proposeEdit(instruction, currentSchema): Promise<{decisions, diff: SchemaDiff}>`.
+- `GeminiSchemaReasoningEngine.proposeEdit` / `MockSchemaReasoningEngine.proposeEdit` —
+  mirror the diagram engines' `proposeEdit`. The Gemini path reuses a new
+  `SCHEMA_EDIT_CONTRACT` (a diff-shaped sibling of the existing full-schema
+  `SCHEMA_CONTRACT`) and a new `coerceSchemaDiff(raw, currentSchema)` that fabricates real
+  ids for brand-new tables/columns while reusing exact existing ids the model was told to
+  reuse, resolving FK references across both in a second pass (mirrors `coerceGraph`'s
+  two-pass approach in `GeminiReasoningEngine.ts`). The Mock path pattern-matches
+  `delete/remove <table>`, `rename <table> to <name>`, `add <column> to <table>`, falling
+  back to a disambiguating `Decision` (never a silent no-op), mirroring
+  `MockReasoningEngine.proposeEdit`.
+- `SchemaSessionService.requestEdit(instruction)` — applies the diff immediately (schema
+  mutations are already synchronous, no staging system like the diagram's
+  `expandDependencies` exists or is needed here) then reuses the existing decision-confirm
+  loop if the engine raised any decisions.
+
+### Dialogic Describe pipeline (new)
+
+Previously "Describe" only existed as `describeGraph.ts`, a deterministic, non-conversational
+summary behind a toolbar button. Added a second, LLM-driven, chat-based describe step that
+fires automatically once generation finishes:
+- `domain/ports.ts`: `IReasoningEngine.describe(graph): Promise<string>` /
+  `ISchemaReasoningEngine.describeSchema(schema): Promise<string>` — return one short
+  paragraph that summarizes the result and ends with a concrete follow-up question.
+- `infrastructure/reasoning/geminiClient.ts` gained `callGeminiForText` (same request shape
+  as `callGeminiForJson` minus `responseMimeType: "application/json"`, for plain prose).
+- Mock engines answer deterministically from their own data (node/type counts;
+  table/column counts) plus a static follow-up question, keeping the offline demo path
+  free of any network dependency.
+- `DiagramSessionService.finalizeGeneration()` and the two places `SchemaSessionService`
+  transitions to `mode: 'ready'` now call a private `announceAndAsk()` that logs + speaks
+  the result. Because the chat input already routes non-empty-graph/schema text through the
+  Edit pipeline, "answering" the follow-up question *is* just the user's next chat message —
+  no new state machine or UI was needed for the dialogic loop itself.
+- The original toolbar `describeCurrentDiagram()` / **Describe diagram** button was left
+  unchanged as a free, always-available, non-LLM fallback.
+
+### `thinking` state (new)
+
+Neither session's `mode` changes until an async reasoning/layout call actually resolves, so
+the entire network round-trip previously had zero UI feedback. Added `thinking: boolean` to
+both `SessionState` (`application/types.ts`) and `SchemaSessionState`
+(`application/schemaTypes.ts`), set `true`/`false` around every method that awaits a
+reasoning-engine or layout-engine call (`generateFromPrompt`, `generateFromSchema`,
+`requestEdit`, `resolveActiveDecision`, `confirmPropagatedEffects` on the diagram side; the
+schema-side equivalents). `ChatPane` folds `thinking` into its existing `busy` disablement and
+renders a `"Thinking…"` status entry in the chat log (`role="status"`); both decision
+dialogues render the same status text and disable their controls while `thinking`.
+
+### TTS mute toggle (new)
+
+The reported "audio clip image" during confirmations was diagnosed as the browser's own
+tab-level "playing audio" indicator, triggered by `WebSpeechTTS.speak()` firing on every
+confirmation/description with no way to turn it off. Added
+`getSpeechEnabled`/`setSpeechEnabled` to `infrastructure/config/settingsStore.ts`
+(localStorage-backed, default `true`), a checkbox in `SettingsPanel.tsx`, and a check in
+`WebSpeechTTS.speak()` that no-ops when disabled.
+
+### Decision-confirmation UX rewrite
+
+Two related bugs in `DecisionDialogue.tsx` / `SchemaDecisionDialogue.tsx`:
+1. The original "Confirm assumption" / "Use selected alternative" two-button layout ignored
+   the radio selection when "Confirm assumption" was clicked — it always applied the
+   originally-assumed option regardless of what was selected, discarding the user's choice.
+   Fixed by removing both buttons: selecting a radio option now directly calls
+   `confirmActiveDecision()` (if it matches the assumed option) or
+   `contestActiveDecision(i)` (otherwise) — selecting *is* the action.
+2. That fix initially still pre-checked the assumed option by default, which reintroduced a
+   worse bug: clicking an *already-checked* radio never fires a DOM `change` event, so
+   confirming the default guess silently did nothing (this is what broke
+   `scripts/smoke-test.mjs`'s "dependency-aware edit" and "export" scenarios — the confirm
+   loop stalled and left `#chat-input` permanently disabled). Fixed by starting `chosen` at
+   `null` on every new decision instead of pre-selecting the guess — every pick, including
+   the guess itself, is then a genuine unchecked→checked transition and reliably fires
+   `onChange`. This also keeps full keyboard accessibility (arrow-key navigation between
+   radios relies on `onChange`, not `onClick`/`click` synthesis).
+   Copy was also reworded to read as dialogue rather than a form ("Quick check 1 of 3", "Did
+   I get that right? Pick one to confirm it.", "(my guess)" instead of "(assumed)").
+   `scripts/smoke-test.mjs` was updated to click the `.decision-option:has-text("(my guess)")
+   input[type="radio"]` instead of a named confirm button.
+
+### Unlaid-out node render during confirmation (bug fix)
+
+`DiagramSessionService.beginGeneration()` previously put the raw draft graph straight into
+`state.graph` — every node still at its parse-time default `(0, 0)` — for the entire
+confirmation loop; `ElkLayoutEngine.layout()` only ran afterward in `finalizeGeneration()`.
+The result was every node/label rendering stacked on top of each other, an illegible clump
+mistaken for a stray image. Fixed by running `layoutEngine.layout(draftGraph)` immediately in
+`beginGeneration()` (falling back to the raw positions if layout throws, since layout here is
+a visual nicety, not load-bearing), so the canvas always shows a laid-out diagram even before
+any decision is confirmed.
+
+### Bidirectional schema ↔ diagram sync (new)
+
+Previously `DiagramSessionService.generateFromSchema()` was a one-shot, one-way conversion —
+after that call, `DiagramSessionService` and `SchemaSessionService` had no further knowledge
+of each other (per the class docstrings, deliberately). Added real two-way sync: an edit on
+either side of a *linked* pair — including a structural edit an LLM invents on its own, like
+splitting one node/table into several — now propagates to the other side automatically.
+Neither session service gained a reference to the other; a new coordinating class is the only
+thing that reaches into both, same seam `App.tsx` already used for the one-shot conversion.
+
+- **`domain/sync.ts`** (new) — `Correspondence { nodeToTable, tableToNode }` plus pure
+  helpers `emptyCorrespondence()`, `addCorrespondencePairs()`, `removeCorrespondenceFor()`.
+- **`domain/schema/schemaToGraph.ts`** — `schemaModelToDraftGraph()` now also returns
+  `correspondence: Array<{ tableId, nodeId }>`, the table↔node id mapping it already built
+  internally and previously discarded.
+- **`domain/ports.ts`** — `TranslatedEdit<D> { diff: D; addCorrespondence?; removedNodeIds?;
+  removedTableIds? }`, plus `IReasoningEngine.translateSchemaEdit(diff: SchemaDiff,
+  correspondence, currentGraph): Promise<TranslatedEdit<GraphDiff>>` and
+  `ISchemaReasoningEngine.translateDiagramEdit(diff: GraphDiff, correspondence, currentGraph,
+  currentSchema): Promise<TranslatedEdit<SchemaDiff>>` — each engine translates *into* its
+  own domain's diff shape. Implemented in all four reasoning engines
+  (`GeminiReasoningEngine`, `GeminiSchemaReasoningEngine`, `MockReasoningEngine`,
+  `MockSchemaReasoningEngine`); `GeminiSchemaReasoningEngine.coerceSchemaDiff` was changed to
+  also return its internal `newTableIdMap` (model-placeholder-id → real generated table) so
+  `translateDiagramEdit` can build `addCorrespondence` pairs directly from it. Mock engines
+  special-case the "split" diff shape (one node/table removed, several added in the same
+  diff) as a demoable offline heuristic; deterministic id-based removal is folded in on top
+  of whatever each engine's own translation proposes, so a removed table/node is never missed
+  even if the model forgets to mention it.
+- **`DiagramSessionService`** — `onEditApplied(listener)` fires with the already
+  dependency-expanded `GraphDiff` right when `applyStagedEdit()` applies it;
+  `onGeneratedFromSchema(listener)` fires once with the correspondence right when
+  `generateFromSchema()` computes the draft graph. New `applySyncedDiff(diff, summary)`
+  applies an already-decided diff directly (re-running `expandDependencies` +
+  `relayoutSubgraph`) and logs `"Synced from schema: <summary>"` — deliberately bypasses the
+  normal decision-confirmation loop (the user already confirmed the original edit on the
+  schema side) and does not itself emit `onEditApplied`, so it can never re-trigger a
+  translation back the other way.
+- **`SchemaSessionService`** — every method that used to call `applySchemaDiff` directly
+  (`addTable`, `removeTable`, `renameTable`, `addColumn`, `removeColumn`, `updateColumn`,
+  `requestEdit`) now routes through one new private `mutate(diff, extraPatch?)`, the single
+  choke point that applies the diff, updates state, and emits `onEditApplied` — so both
+  AI-driven and direct grid edits are covered, not just chat. `cycleColumnReference`
+  deliberately still bypasses `mutate()` (it fires on every keystroke while browsing FK
+  candidates, and a column-level FK change has no node-level diagram equivalent to sync
+  anyway). `loadDefaultSchema`/`clearSchema` emit a new `onReset` event instead (a full
+  replacement, not a diff — legitimately breaks any existing link). New
+  `applySyncedDiff(diff, summary)` mirrors the diagram side: applies directly (also
+  replicating `removeTable()`'s own FK-reference cleanup for any removed table, since this
+  bypasses that method), logs `"Synced from diagram: <summary>"`, does not call `mutate()`.
+- **`application/SyncCoordinator.ts`** (new) — constructed at the composition root with both
+  session services and both reasoning engines. Subscribes to
+  `diagramService.onGeneratedFromSchema` to establish `this.correspondence`, to
+  `schemaService.onReset` to clear it, and to both `onEditApplied` hooks to translate and
+  apply the change on the other side via the new port methods above. An `applying` boolean
+  guards against re-entrant translation during an in-flight sync (belt-and-suspenders; the
+  `applySyncedDiff` methods not emitting `onEditApplied` already prevents an infinite loop on
+  their own). Failures are caught and logged to `console.error` — the original edit already
+  succeeded, so a translation failure never blocks or rolls it back.
+- **`App.tsx`** — `useComposedSession()` now also constructs one `SyncCoordinator` per
+  composition (same `settingsVersion`-keyed `useMemo` as the two services), passing it the
+  same `reasoningEngine`/`schemaReasoningEngine` instances already selected for the two
+  services.
+
+**Explicit scope for this pass** (see the plan this was built from,
+`nested-soaring-moon.md`, for the reasoning): only a diagram generated **from** a schema is
+linked — a diagram built from a free-text prompt has nothing to sync with, and works exactly
+as before. Node/edge position (layout-only) changes never sync, only structural diffs do.
+Translation is best-effort, especially on the Mock engines; a translation failure is logged,
+never blocks the edit that already succeeded on its own side.
