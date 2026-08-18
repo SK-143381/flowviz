@@ -9,9 +9,11 @@ is, which way an edge points, what a label implies) to the diagram without first
 in plain language and letting the user confirm or correct it.
 
 [Live demo](https://sk-143381.github.io/flowviz/) &middot;
+[Demo video](https://youtu.be/W8HPosc2n0U) &middot;
 [Architecture reference](docs/architecture.md) &middot;
 [Literature review and project plan](docs/write-up.md) &middot;
-[Wiki (draft)](wiki/Home.md)
+[Wiki (draft)](wiki/Home.md) &middot;
+[AI use disclosure](NOTICE.md)
 
 ## Screenshots
 
