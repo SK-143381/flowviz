@@ -36,3 +36,8 @@ touched the following files:
 - `docs/smoke-testing.md`
 
 All AI-assisted contributions were reviewed by a human contributor before merging.
+
+## Contributions
+
+- **Sanchita S. Kamath** — primary author and maintainer. Designed and implemented the Clean/Hexagonal architecture (domain/application/infrastructure/presentation layers), the decision-confirmation loop, the dependency-aware edit loop, the schema↔diagram sync coordinator, accessibility features (keyboard navigation, ARIA live regions, TTS/STT), and the Playwright smoke-test suite.
+- **Azucena Ventimilla** — implemented Gemini API key handling and wired the live Gemini reasoning engine into the schema editor (`app/src/infrastructure/reasoning/geminiClient.ts`, `app/src/App.tsx`).

@@ -13,7 +13,7 @@ in plain language and letting the user confirm or correct it.
 [Architecture reference](docs/architecture.md) &middot;
 [Literature review and project plan](docs/write-up.md) &middot;
 [Wiki (draft)](wiki/Home.md) &middot;
-[AI use disclosure](NOTICE.md)
+[AI use disclosure](wiki/NOTICE.md)
 
 ## Screenshots
 
